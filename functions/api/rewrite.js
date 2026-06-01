@@ -31,7 +31,7 @@ export async function onRequest(context) {
     });
   }
 
-  const { apiKey, model = "deepseek-chat", messages, temperature = 0.9, max_tokens = 4096 } = body;
+  const { apiKey, model = "deepseek-v4-pro", messages, temperature = 0.9, max_tokens = 4096 } = body;
 
   if (!apiKey || !messages) {
     return new Response(JSON.stringify({ error: "缺少 apiKey 或 messages" }), {
