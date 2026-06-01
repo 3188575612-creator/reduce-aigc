@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AIGC降重工具 — 降低论文AI检测率</title>
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <style>
   :root {
     --bg: #f8f9fa;
@@ -145,6 +146,20 @@
   .output-area { background:#fafbfc; white-space:pre-wrap; word-break:break-word; overflow-y:auto; }
   .output-placeholder { color:#c4c7cc; font-style:italic; }
 
+  /* ---- Upload ---- */
+  .upload-zone {
+    border:2px dashed var(--border); border-radius:8px; padding:14px;
+    text-align:center; cursor:pointer; transition:all .2s; margin-bottom:10px;
+    color:var(--text-secondary); font-size:13px;
+  }
+  .upload-zone:hover, .upload-zone.drag-over { border-color:var(--accent); background:var(--accent-light); color:var(--accent); }
+
+  /* ---- Progress bar ---- */
+  .progress-wrap { margin:10px 0; display:none; }
+  .progress-bar { height:8px; background:var(--border); border-radius:4px; overflow:hidden; }
+  .progress-fill { height:100%; background:var(--accent); border-radius:4px; transition:width .3s; width:0; }
+  .progress-text { font-size:12px; color:var(--text-secondary); margin-top:4px; }
+
   .btn {
     padding:8px 16px; border-radius:8px; font-size:13px; font-weight:600;
     cursor:pointer; border:1px solid transparent; transition:all .15s; white-space:nowrap;
@@ -242,6 +257,10 @@
       <span class="panel-title">📥 原文输入</span>
       <span class="char-count" id="inputCount">0 字</span>
     </div>
+    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+      <span id="uploadHint">📁 拖拽 .docx / .txt 到此处，或点击上传</span>
+    </div>
+    <input type="file" id="fileInput" accept=".docx,.txt" style="display:none" onchange="handleFile(this.files[0])">
     <textarea class="input-area" id="inputText"
       placeholder="在此粘贴论文段落…&#10;&#10;建议每次 500-2000 字效果最佳。"
       style="flex:1;"></textarea>
@@ -272,7 +291,11 @@
 </div>
 
 <!-- Action bar -->
-<div class="action-bar">
+<div class="action-bar" style="flex-direction:column;align-items:center;">
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-text" id="progressText">正在改写第 1/3 段…</div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+  </div>
   <button class="btn btn-primary btn-rewrite" id="rewriteBtn" onclick="startRewrite()">🔄 开始改写</button>
 </div>
 
@@ -281,10 +304,16 @@
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header">
       <span class="modal-title">⚙ 设置</span>
+      <div class="view-tabs" style="margin-bottom:0;">
+        <button class="view-tab active" data-stab="keys" onclick="switchSettingsTab('keys')">API & 模型</button>
+        <button class="view-tab" data-stab="history" onclick="switchSettingsTab('history')">改写历史</button>
+      </div>
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
     <div class="modal-body">
 
+      <!-- Tab: Keys -->
+      <div id="stab-keys">
       <!-- API Keys -->
       <div class="section-title">🔑 API Key</div>
       <div class="key-list" id="keyList"></div>
@@ -306,6 +335,17 @@
       <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
         R1 改写效果可能更好，但延迟较高（10-30 秒），且上下文限制较短。
       </div>
+      </div><!-- /stab-keys -->
+
+      <!-- Tab: History -->
+      <div id="stab-history" style="display:none;">
+        <div class="section-title">📜 改写历史</div>
+        <div id="historyList" style="max-height:350px;overflow-y:auto;">
+          <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:20px;">暂无记录</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="margin-top:8px;width:100%;">🗑 清空全部历史</button>
+      </div>
+
     </div>
   </div>
 </div>
@@ -772,6 +812,269 @@ function computeLCS(a, b) {
     else j--;
   }
   return result;
+}
+
+// ==================== File upload ====================
+(function initUpload() {
+  const zone = document.getElementById("uploadZone");
+  if (!zone) return;
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("drag-over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault();
+    zone.classList.remove("drag-over");
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+})();
+
+async function handleFile(file) {
+  if (!file) return;
+  const name = file.name.toLowerCase();
+
+  try {
+    let text = "";
+    if (name.endsWith(".txt")) {
+      text = await file.text();
+    } else if (name.endsWith(".docx")) {
+      document.getElementById("uploadHint").textContent = "⏳ 正在解析 " + file.name + "…";
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      text = result.value;
+    } else {
+      return toast("仅支持 .docx 和 .txt 文件");
+    }
+
+    if (!text.trim()) return toast("文件中未检测到文字内容");
+
+    document.getElementById("inputText").value = text.trim();
+    document.getElementById("inputCount").textContent = text.trim().length + " 字";
+    document.getElementById("uploadHint").textContent = "✅ " + file.name + " 已加载";
+    toast("已加载 " + file.name);
+  } catch (err) {
+    toast("文件读取失败：" + err.message);
+    document.getElementById("uploadHint").textContent = "📁 拖拽 .docx / .txt 到此处，或点击上传";
+  }
+}
+
+// ==================== Settings tabs ====================
+function switchSettingsTab(tab) {
+  document.querySelectorAll("[data-stab]").forEach(t => t.classList.remove("active"));
+  document.querySelector(`[data-stab="${tab}"]`).classList.add("active");
+  document.getElementById("stab-keys").style.display = tab === "keys" ? "" : "none";
+  document.getElementById("stab-history").style.display = tab === "history" ? "" : "none";
+  if (tab === "history") renderHistoryList();
+}
+
+// ==================== History ====================
+function saveHistory() {
+  if (!originalText || !rewrittenText) return;
+  const records = getHistory();
+  records.unshift({
+    time: new Date().toLocaleString(),
+    strategy: STRATEGIES[currentStrategy].name,
+    intensity: currentIntensity,
+    original: originalText.substring(0, 200),
+    result: rewrittenText,
+    resultPreview: rewrittenText.substring(0, 200),
+  });
+  if (records.length > 50) records.length = 50;
+  localStorage.setItem("aigc_history", JSON.stringify(records));
+}
+
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem("aigc_history")) || []; }
+  catch { return []; }
+}
+
+function renderHistoryList() {
+  const records = getHistory();
+  const el = document.getElementById("historyList");
+  if (!records.length) {
+    el.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:20px;">暂无记录</div>';
+    return;
+  }
+  el.innerHTML = records.map((r, i) => `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-size:12px;color:var(--text-secondary);">${r.time}</span>
+        <span style="font-size:11px;background:var(--accent-light);color:var(--accent);padding:2px 8px;border-radius:10px;">${r.strategy} · ${r.intensity === "heavy" ? "重度" : "普通"}</span>
+      </div>
+      <div style="font-size:12px;color:#9ca3af;margin-bottom:4px;">原文：${escapeHtml(r.original)}…</div>
+      <div style="font-size:13px;margin-bottom:8px;">改写：${escapeHtml(r.resultPreview)}…</div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-sm" onclick="viewHistory(${i})">👁 查看全文</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyHistory(${i})">📋 复制</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteHistory(${i})" style="color:var(--danger);">🗑</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function viewHistory(i) {
+  const r = getHistory()[i];
+  if (!r) return;
+  originalText = r.original;
+  rewrittenText = r.result;
+  document.getElementById("outputArea").textContent = r.result;
+  document.getElementById("outputCount").textContent = r.result.length + " 字";
+  document.getElementById("viewTabs").style.display = "flex";
+  switchView("result");
+  closeSettings();
+}
+
+function copyHistory(i) {
+  const r = getHistory()[i];
+  if (!r) return;
+  navigator.clipboard.writeText(r.result).then(() => toast("已复制"));
+}
+
+function deleteHistory(i) {
+  const records = getHistory();
+  records.splice(i, 1);
+  localStorage.setItem("aigc_history", JSON.stringify(records));
+  renderHistoryList();
+}
+
+function clearHistory() {
+  if (!confirm("确定清空全部改写历史？")) return;
+  localStorage.removeItem("aigc_history");
+  renderHistoryList();
+  toast("历史已清空");
+}
+
+// ==================== Modified startRewrite ====================
+const originalStartRewrite = startRewrite;
+startRewrite = async function() {
+  const apiKey = (getActiveKey() || {}).key;
+  if (!apiKey) return toast("请先配置 API Key");
+
+  originalText = document.getElementById("inputText").value.trim();
+  if (!currentIntensity) return toast("请先选择改写强度");
+  if (!originalText) return toast("请先输入待改写文本");
+
+  // Batch mode for long text
+  if (originalText.length > 2000) {
+    if (!confirm(`原文 ${originalText.length} 字，超过 2000 字将自动分段改写（每段 ≤1500 字），降低 AIGC 率的效果会更均匀。\n\n是否继续？`)) return;
+    return batchRewrite(apiKey);
+  }
+
+  // Single segment (original flow)
+  return singleRewrite(apiKey);
+};
+
+async function singleRewrite(apiKey) {
+  const s = loadSettings();
+  const btn = document.getElementById("rewriteBtn");
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>改写中…';
+  const outputEl = document.getElementById("outputArea");
+  outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + s.model + ' 改写…</span>';
+  document.getElementById("progressWrap").style.display = "none";
+
+  const result = await doRewrite(apiKey, s, originalText, 0);
+  btn.disabled = false; btn.innerHTML = "🔄 开始改写";
+
+  if (result.success) {
+    rewrittenText = result.text;
+    outputEl.textContent = rewrittenText;
+    document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
+    document.getElementById("viewTabs").style.display = "flex";
+    switchView("result");
+    saveHistory();
+    toast("✅ 改写完成");
+  } else {
+    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(result.error)}</span>`;
+  }
+}
+
+async function batchRewrite(apiKey) {
+  const s = loadSettings();
+  const btn = document.getElementById("rewriteBtn");
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>分段改写中…';
+  document.getElementById("outputArea").textContent = "";
+  document.getElementById("progressWrap").style.display = "";
+
+  // Split into paragraphs, then chunk
+  const paragraphs = originalText.split(/\n+/).filter(p => p.trim());
+  const chunks = [];
+  let current = "";
+  for (const p of paragraphs) {
+    if (current && (current + p).length > 1500) {
+      chunks.push(current.trim());
+      current = p;
+    } else {
+      current += (current ? "\n" : "") + p;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+
+  const results = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const el = document.getElementById("progressText");
+    el.textContent = `正在改写第 ${i + 1}/${chunks.length} 段…`;
+    document.getElementById("progressFill").style.width = ((i / chunks.length) * 100) + "%";
+
+    const result = await doRewrite(apiKey, s, chunks[i], i);
+    if (!result.success) {
+      el.textContent = `❌ 第 ${i + 1} 段失败：${result.error}`;
+      btn.disabled = false; btn.innerHTML = "🔄 开始改写";
+      return;
+    }
+    results.push(result.text);
+  }
+
+  document.getElementById("progressFill").style.width = "100%";
+  document.getElementById("progressText").textContent = "✅ 全部改写完成！";
+
+  rewrittenText = results.join("\n\n");
+  document.getElementById("outputArea").textContent = rewrittenText;
+  document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
+  document.getElementById("viewTabs").style.display = "flex";
+  switchView("result");
+  saveHistory();
+  document.getElementById("progressWrap").style.display = "none";
+  btn.disabled = false; btn.innerHTML = "🔄 开始改写";
+}
+
+async function doRewrite(apiKey, s, text, attempt) {
+  const MAX_RETRIES = 2;
+  let lastError = null;
+
+  for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+    try {
+      const strategy = STRATEGIES[currentStrategy];
+      const resp = await fetch("/api/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey,
+          model: s.model,
+          temperature: INTENSITY[currentIntensity].temperature + (retry > 0 ? retry * 0.1 : 0),
+          max_tokens: Math.max(4096, Math.ceil(text.length * INTENSITY[currentIntensity].maxMultiplier)),
+          messages: [
+            { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
+            { role: "user", content: strategy.prompt + "\n\n" + text }
+          ]
+        })
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || data.error) throw new Error(data.error?.message || data.error || "请求失败");
+
+      let result = data.choices?.[0]?.message?.content || "";
+      if (!result) { lastError = "API 返回为空"; continue; }
+      result = result.replace(/^```[\s\S]*?\n/, "").replace(/\n```$/, "").trim();
+
+      if (result.length < text.length * 0.3) { lastError = "返回过短"; continue; }
+
+      return { success: true, text: result };
+    } catch (err) {
+      lastError = err.message;
+      if (retry < MAX_RETRIES) await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+
+  return { success: false, error: lastError };
 }
 </script>
 </body>
