@@ -231,7 +231,7 @@
     <span class="strategy-desc" id="strategyDesc">分号长段 + 句首多样 + 段落不均</span>
     <span class="strategy-label" style="margin-left:14px;">改写强度</span>
     <div class="strategy-group" id="intensityGroup">
-      <button class="strategy-btn active" data-intensity="normal">🌿 普通</button>
+      <button class="strategy-btn" data-intensity="normal">🌿 普通</button>
       <button class="strategy-btn" data-intensity="heavy">🔥 重度</button>
     </div>
   </div>
@@ -371,7 +371,7 @@ const STRATEGIES = {
 };
 
 let currentStrategy = "sentence-shuffle";
-let currentIntensity = "normal";
+let currentIntensity = null;
 let originalText = "";
 let rewrittenText = "";
 
@@ -536,6 +536,7 @@ async function startRewrite() {
   }
 
   originalText = document.getElementById("inputText").value.trim();
+  if (!currentIntensity) return toast("请先选择改写强度");
   if (!originalText) return toast("请先输入待改写文本");
 
   const btn = document.getElementById("rewriteBtn");
