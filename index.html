@@ -539,6 +539,10 @@ async function startRewrite() {
   if (!currentIntensity) return toast("请先选择改写强度");
   if (!originalText) return toast("请先输入待改写文本");
 
+  if (originalText.length > 2000 && !confirm(`原文 ${originalText.length} 字，超过 2000 字改写效果可能不佳，降低 AIGC 率的效果也会打折扣。\n\n建议分段改写，每次 500-2000 字最佳。\n\n是否继续？`)) {
+    return;
+  }
+
   const btn = document.getElementById("rewriteBtn");
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>改写中…';
