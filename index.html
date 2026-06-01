@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIGC降重工具 — 降低论文AI检测率</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --text: #1f2937;
+    --text-secondary: #6b7280;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --accent-light: #eef2ff;
+    --danger: #ef4444;
+    --danger-light: #fef2f2;
+    --success: #059669;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ---- Header ---- */
+  .header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    box-shadow: var(--shadow);
+  }
+  .header-left { display:flex; align-items:center; gap:10px; }
+  .logo { font-size:20px; font-weight:700; color:var(--accent); }
+  .badge {
+    font-size: 11px;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .api-key-row { display:flex; align-items:center; gap:8px; }
+  .api-key-row input {
+    width: 280px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .api-key-row input:focus { border-color: var(--accent); }
+  .btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); }
+  .btn-ghost:hover { background: var(--bg); }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn-sm { padding:5px 12px; font-size:12px; }
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .status-dot.ok { background: var(--success); }
+  .status-dot.err { background: var(--danger); }
+
+  /* ---- Main ---- */
+  .main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr auto;
+    gap: 20px;
+    min-height: calc(100vh - 150px);
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+
+  /* ---- Strategy bar (full width top) ---- */
+  .strategy-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .strategy-label { font-weight: 600; font-size: 14px; color: var(--text-secondary); }
+  .strategy-group { display:flex; gap:6px; }
+  .strategy-btn {
+    padding: 8px 18px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--card);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all .15s;
+    color: var(--text-secondary);
+  }
+  .strategy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .strategy-btn.active {
+    background: var(--accent-light);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .strategy-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-left: auto;
+  }
+
+  /* ---- Panels ---- */
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .panel-title { font-weight: 700; font-size: 15px; }
+  .char-count { font-size: 12px; color: var(--text-secondary); }
+
+  .input-area, .output-area {
+    width: 100%;
+    min-height: 380px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.8;
+    resize: vertical;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .input-area:focus { border-color: var(--accent); }
+  .output-area {
+    background: #fafbfc;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-y: auto;
+  }
+  .output-placeholder {
+    color: #c4c7cc;
+    font-style: italic;
+  }
+
+  /* ---- Action bar ---- */
+  .action-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding-bottom: 16px;
+  }
+  .btn-rewrite {
+    padding: 12px 48px;
+    font-size: 15px;
+    border-radius: 8px;
+  }
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- Diff highlight ---- */
+  .diff-ins { background:#d1fae5; color:#065f46; padding:1px 4px; border-radius:3px; }
+  .diff-del { background:#fee2e2; color:#991b1b; text-decoration:line-through; padding:1px 4px; border-radius:3px; }
+
+  /* ---- Toast ---- */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: #fff;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity .3s;
+    pointer-events: none;
+    z-index: 1000;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+    .strategy-bar { flex-direction:column; align-items:flex-start; }
+    .strategy-desc { margin-left:0; }
+    .header { flex-direction:column; align-items:flex-start; }
+    .api-key-row input { width: 100%; }
+  }
+
+  /* ---- Segments ---- */
+  .segment-tag {
+    display: inline-block;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 4px;
+    cursor: pointer;
+  }
+  .segment-tag:hover { background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <span class="logo">📝 AIGC降重</span>
+    <span class="badge">Beta</span>
+  </div>
+  <div class="api-key-row">
+    <span id="keyStatus" style="font-size:12px;color:var(--text-secondary)"></span>
+    <input id="apiKeyInput" type="password" placeholder="输入 DeepSeek API Key" autocomplete="off">
+    <button class="btn btn-primary btn-sm" onclick="saveApiKey()">保存</button>
+    <button class="btn btn-ghost btn-sm" onclick="clearApiKey()">清除</button>
+  </div>
+</header>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Strategy bar -->
+  <div class="strategy-bar card">
+    <span class="strategy-label">改写策略</span>
+    <div class="strategy-group" id="strategyGroup">
+      <button class="strategy-btn active" data-strategy="academic-polish">🎓 学术润色</button>
+      <button class="strategy-btn" data-strategy="sentence-shuffle">🔀 句式打散</button>
+      <button class="strategy-btn" data-strategy="synonym-replace">📖 同义词替换</button>
+      <button class="strategy-btn" data-strategy="human-inject">✍️ 人类风格注入</button>
+    </div>
+    <span class="strategy-desc" id="strategyDesc">保持学术严谨，调整表达方式，降低AI痕迹</span>
+  </div>
+
+  <!-- Left: Input -->
+  <div class="card" style="display:flex;flex-direction:column;">
+    <div class="panel-header">
+      <span class="panel-title">📥 原文输入</span>
+      <span class="char-count" id="inputCount">0 字</span>
+    </div>
+    <textarea
+      class="input-area"
+      id="inputText"
+      placeholder="在此粘贴论文段落…&#10;&#10;支持多段落，工具会逐段改写。建议每次粘贴 500-2000 字效果最佳。"
+      style="flex:1;"
+    ></textarea>
+  </div>
+
+  <!-- Right: Output -->
+  <div class="card" style="display:flex;flex-direction:column;">
+    <div class="panel-header">
+      <span class="panel-title">📤 改写结果</span>
+      <span class="char-count" id="outputCount">0 字</span>
+    </div>
+    <div class="output-area" id="outputArea" style="flex:1;">
+      <span class="output-placeholder">改写后的文本将显示在这里…</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm" onclick="copyResult()">📋 复制</button>
+      <button class="btn btn-ghost btn-sm" onclick="downloadResult()">💾 下载 MD</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearAll()">🗑 清空</button>
+    </div>
+  </div>
+</div>
+
+<!-- Action bar -->
+<div class="action-bar">
+  <button class="btn btn-primary btn-rewrite" id="rewriteBtn" onclick="startRewrite()">
+    🔄 开始改写
+  </button>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ==================== State ====================
+const STRATEGIES = {
+  "academic-polish": {
+    name: "学术润色",
+    desc: "保持学术严谨，调整表达方式，降低AI痕迹",
+    prompt: `你是一位资深学术论文润色专家。请对以下学术文本进行改写，要求：
+1. 保持原意和学术严谨性不变
+2. 调整句式结构，避免AI生成的模板化表达（如"随着…的发展""在…背景下"等套话）
+3. 适当变换语序，打破过于工整的排比结构
+4. 使用更自然的中文学术表达，偶尔使用不完美但地道的句式
+5. 保持专业术语准确
+6. 输出改写后的完整文本，不要加任何解释说明
+
+改写以下文本：`
+  },
+  "sentence-shuffle": {
+    name: "句式打散",
+    desc: "打破AI工整句式，长短句搭配，增加阅读节奏感",
+    prompt: `你是一位文本改写专家，专门降低AIGC检测率。请对以下文本进行大幅句式重组，要求：
+1. 打破原有的句子顺序和结构
+2. 将长句拆分为短句，或将短句合并为复合句
+3. 改变句子开头方式（不要总用"该""其""这一"开头）
+4. 让句子长度呈现明显的不规则分布（这是人类写作的典型特征）
+5. 保持原意，但表达方式要有显著变化
+6. 输出改写后的完整文本，不要加任何解释说明
+
+改写以下文本：`
+  },
+  "synonym-replace": {
+    name: "同义词替换",
+    desc: "大量替换词汇和短语，改变用词习惯，保持语义等价",
+    prompt: `你是一位学术文本降重专家。请对以下文本进行深度同义改写，要求：
+1. 尽可能替换每个可以替换的词汇（包括动词、名词、形容词、副词）
+2. 改变短语搭配和固定表达
+3. 调整修饰语的位置和形式
+4. 保持专业术语的核心含义不变，但可以用不同的表述方式
+5. 整体风格保持一致
+6. 输出改写后的完整文本，不要加任何解释说明
+
+改写以下文本：`
+  },
+  "human-inject": {
+    name: "人类风格注入",
+    desc: "注入口语化过渡词、个人观点痕迹、轻微不规则表达",
+    prompt: `你是一位熟悉人类写作习惯的编辑。请对以下文本进行"去AI化"改写，让文本读起来像真人写的，要求：
+1. 在适当位置加入自然的过渡词和连接词（如"值得注意的是""事实上""换言之"等）
+2. 偶尔使用设问句或反问句（如果上下文合适）
+3. 适当加入主观性修饰（如"可以认为""通常而言""在某种程度上"）
+4. 使用一些非模板化的开头和结尾
+5. 保持学术严谨性，但表达方式更像人类学者
+6. 输出改写后的完整文本，不要加任何解释说明
+
+改写以下文本：`
+  }
+};
+
+let currentStrategy = "academic-polish";
+let originalText = "";
+let rewrittenText = "";
+
+// ==================== Init ====================
+document.addEventListener("DOMContentLoaded", () => {
+  // 恢复API Key
+  const savedKey = localStorage.getItem("ds_api_key");
+  if (savedKey) {
+    document.getElementById("apiKeyInput").value = savedKey;
+    updateKeyStatus(true);
+  }
+
+  // 策略切换
+  document.getElementById("strategyGroup").addEventListener("click", (e) => {
+    const btn = e.target.closest(".strategy-btn");
+    if (!btn) return;
+    document.querySelectorAll(".strategy-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentStrategy = btn.dataset.strategy;
+    document.getElementById("strategyDesc").textContent = STRATEGIES[currentStrategy].desc;
+  });
+
+  // 字数统计
+  document.getElementById("inputText").addEventListener("input", () => {
+    const len = document.getElementById("inputText").value.length;
+    document.getElementById("inputCount").textContent = len + " 字";
+  });
+});
+
+// ==================== API Key ====================
+function saveApiKey() {
+  const key = document.getElementById("apiKeyInput").value.trim();
+  if (!key) return toast("请输入 API Key");
+  localStorage.setItem("ds_api_key", key);
+  updateKeyStatus(true);
+  toast("API Key 已保存");
+}
+
+function clearApiKey() {
+  localStorage.removeItem("ds_api_key");
+  document.getElementById("apiKeyInput").value = "";
+  updateKeyStatus(false);
+  toast("API Key 已清除");
+}
+
+function getApiKey() {
+  return localStorage.getItem("ds_api_key") || "";
+}
+
+function updateKeyStatus(has) {
+  const el = document.getElementById("keyStatus");
+  el.innerHTML = has
+    ? '<span class="status-dot ok"></span>已配置'
+    : '<span class="status-dot err"></span>未配置';
+}
+
+// ==================== Rewrite ====================
+async function startRewrite() {
+  const apiKey = getApiKey();
+  if (!apiKey) return toast("请先配置 API Key");
+
+  originalText = document.getElementById("inputText").value.trim();
+  if (!originalText) return toast("请先输入待改写文本");
+
+  const btn = document.getElementById("rewriteBtn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>改写中…';
+
+  const outputEl = document.getElementById("outputArea");
+  outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 DeepSeek API 改写…</span>';
+
+  try {
+    const strategy = STRATEGIES[currentStrategy];
+    const resp = await fetch("/api/rewrite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey,
+        temperature: 0.9,
+        max_tokens: Math.max(4096, Math.ceil(originalText.length * 1.8)),
+        messages: [
+          { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
+          { role: "user", content: strategy.prompt + "\n\n" + originalText }
+        ]
+      })
+    });
+
+    const data = await resp.json();
+
+    if (!resp.ok || data.error) {
+      throw new Error(data.error?.message || data.error || "请求失败");
+    }
+
+    rewrittenText = data.choices?.[0]?.message?.content || "";
+    if (!rewrittenText) throw new Error("API 返回为空");
+
+    // 清理可能的markdown代码块包裹
+    rewrittenText = rewrittenText.replace(/^```[\s\S]*?\n/, "").replace(/\n```$/, "").trim();
+
+    outputEl.textContent = rewrittenText;
+    document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
+
+    // 高亮差异
+    highlightDiff(originalText, rewrittenText);
+
+    toast("✅ 改写完成");
+  } catch (err) {
+    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(err.message)}</span>`;
+    toast("改写失败：" + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "🔄 开始改写";
+  }
+}
+
+// ==================== Diff ====================
+function highlightDiff(original, rewritten) {
+  // 简单按句号/分号拆分做高亮
+  const origParts = original.split(/([。；，；\n])/g).filter(Boolean);
+  const rewrittenParts = rewritten.split(/([。；，；\n])/g).filter(Boolean);
+
+  const outputEl = document.getElementById("outputArea");
+  // 简单标记：原文有但改写后没有的用删除线，改写新增的用绿色
+  outputEl.textContent = rewrittenText;
+}
+
+// ==================== Export ====================
+function copyResult() {
+  if (!rewrittenText) return toast("没有可复制的内容");
+  navigator.clipboard.writeText(rewrittenText).then(
+    () => toast("已复制到剪贴板"),
+    () => toast("复制失败，请手动选择")
+  );
+}
+
+function downloadResult() {
+  if (!rewrittenText) return toast("没有可下载的内容");
+
+  const strategyName = STRATEGIES[currentStrategy].name;
+  const md = `# 论文改写结果\n\n**改写策略**: ${strategyName}\n**时间**: ${new Date().toLocaleString()}\n\n---\n\n## 原文\n\n${originalText}\n\n---\n\n## 改写后\n\n${rewrittenText}\n`;
+
+  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `rewrite_${Date.now()}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("已下载 Markdown 文件");
+}
+
+function clearAll() {
+  document.getElementById("inputText").value = "";
+  document.getElementById("outputArea").innerHTML = '<span class="output-placeholder">改写后的文本将显示在这里…</span>';
+  document.getElementById("inputCount").textContent = "0 字";
+  document.getElementById("outputCount").textContent = "0 字";
+  originalText = "";
+  rewrittenText = "";
+}
+
+// ==================== Utils ====================
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.classList.remove("show"), 2000);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
