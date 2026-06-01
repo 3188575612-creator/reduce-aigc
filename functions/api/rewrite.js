@@ -9,7 +9,7 @@ function corsHeaders() {
 const ENDPOINTS = {
   "deepseek-v4-pro":  { url:"https://api.deepseek.com/v1/chat/completions", name:"deepseek-v4-pro", auth:"bearer" },
   "deepseek-v4-flash": { url:"https://api.deepseek.com/v1/chat/completions", name:"deepseek-v4-flash", auth:"bearer" },
-  "glm-4-flash":       { url:"https://open.bigmodel.cn/api/paas/v4/chat/completions", name:"glm-4-flash", auth:"bearer" },
+  "glm-4.7":          { url:"https://open.bigmodel.cn/api/paas/v4/chat/completions", name:"glm-4.7", auth:"bearer" },
   "qwen-turbo":        { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-turbo", auth:"bearer" },
   "qwen-plus":         { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-plus", auth:"bearer" },
   "xiaomimimo":        { url:"https://api.xiaomimimo.com/v1/chat/completions", name:"mimo-v2.5-pro", auth:"apikey" },
