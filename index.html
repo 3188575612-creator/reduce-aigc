@@ -206,10 +206,10 @@
   <div class="strategy-bar card">
     <span class="strategy-label">改写策略</span>
     <div class="strategy-group" id="strategyGroup">
-      <button class="strategy-btn active" data-strategy="sentence-shuffle">🔀 句式打散</button>
-      <button class="strategy-btn" data-strategy="human-inject">✍️ 人类风格注入</button>
+      <button class="strategy-btn active" data-strategy="sentence-shuffle">🔀 降AI·结构</button>
+      <button class="strategy-btn" data-strategy="human-inject">✍️ 降AI·风格</button>
     </div>
-    <span class="strategy-desc" id="strategyDesc">大幅打散AI工整句式，显著降低检测率</span>
+    <span class="strategy-desc" id="strategyDesc">打散句式 + 中英混用 + 分号串联</span>
   </div>
 
   <!-- Left: Input -->
@@ -312,7 +312,7 @@ function getActiveKey() {
 // ==================== Strategies ====================
 const STRATEGIES = {
   "sentence-shuffle": {
-    name:"句式打散", desc:"大幅打散AI工整句式，显著降低检测率",
+    name:"降AI·结构", desc:"打散句式 + 中英混用 + 分号串联",
     prompt:`你是一位专门降低AIGC检测率的文本改写专家。请参考以下"真人生成论文"的风格特征，对文本进行深度改写：
 
 【参考风格特征】
@@ -327,7 +327,7 @@ const STRATEGIES = {
 请对以下文本按要求改写。只输出改写后的文本，不加任何解释。`
   },
   "human-inject": {
-    name:"人类风格注入", desc:"注入真人写作痕迹，自然降AI",
+    name:"降AI·风格", desc:"真人文风 + 技术细节 + 段落起伏",
     prompt:`你是一位深谙真实学术写作风格的编辑。请参考以下已通过AI检测的真实论文风格，对文本进行"去AI化"深度改写：
 
 【参考风格特征】
