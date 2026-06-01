@@ -684,8 +684,7 @@ function renderCompare() {
 }
 
 function splitSentences(text) {
-  return text.split(/([。；!?！？
-])/g).reduce((acc, cur, i, arr) => {
+  return text.split(/([。；!?！？\n])/g).reduce((acc, cur, i, arr) => {
     if (i % 2 === 0 && cur.trim()) acc.push(cur.trim());
     else if (i % 2 === 1 && acc.length > 0) acc[acc.length - 1] += cur;
     return acc;
