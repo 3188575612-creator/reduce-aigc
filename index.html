@@ -248,6 +248,7 @@
   <div class="header-right">
     <span class="header-info" id="headerInfo"></span>
     <button class="btn-settings" title="改写历史" onclick="openHistory()">📜</button>
+    <button class="btn-settings" title="AI检测" onclick="openDetect()">🔍</button>
     <button class="btn-settings" title="设置" onclick="openSettings()">⚙</button>
   </div>
 </header>
@@ -299,11 +300,9 @@
     </div>
     <div class="compare-area" id="compareArea" style="display:none;">
     </div>
-    <div id="aiDetectResult" style="display:none;margin-top:10px;padding:12px;border-radius:8px;font-size:13px;"></div>
     <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm" onclick="copyResult()">📋 复制</button>
       <button class="btn btn-ghost btn-sm" onclick="downloadResult()">💾 下载 MD</button>
-      <button class="btn btn-ghost btn-sm" id="detectBtn" onclick="detectAI()" style="display:none;">🔍 检测AI痕迹</button>
       <button class="btn btn-ghost btn-sm" onclick="clearAll()">🗑 清空</button>
     </div>
   </div>
@@ -369,6 +368,23 @@
     </div>
     <div class="history-panel-footer">
       <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="width:100%;">🗑 清空全部历史</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detect Panel -->
+<div class="history-overlay" id="detectOverlay" onclick="closeDetect(event)">
+  <div class="history-panel" onclick="event.stopPropagation()">
+    <div class="history-panel-header">
+      <span class="history-panel-title">🔍 AI痕迹检测</span>
+      <button class="modal-close" onclick="closeDetect()">✕</button>
+    </div>
+    <div class="history-panel-body" id="detectPanelBody">
+      <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">
+        改写完成后点击下方按钮开始检测
+        <br><br>
+        <button class="btn btn-primary btn-sm" onclick="runDetect()">🔍 开始检测</button>
+      </div>
     </div>
   </div>
 </div>
@@ -709,8 +725,6 @@ function clearAll() {
   document.getElementById("viewTabs").style.display = "none";
   document.getElementById("compareArea").style.display = "none";
   document.getElementById("outputArea").style.display = "";
-  document.getElementById("detectBtn").style.display = "none";
-  document.getElementById("aiDetectResult").style.display = "none";
 }
 
 // ==================== Utils ====================
@@ -980,21 +994,42 @@ function clearHistory() {
 }
 
 // ==================== AI Detection ====================
-async function detectAI() {
-  if (!rewrittenText) return toast("没有可检测的内容");
+function openDetect() {
+  if (!rewrittenText) return toast("请先完成改写");
+  document.getElementById("detectOverlay").classList.add("show");
+  document.getElementById("detectPanelBody").innerHTML = `
+    <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">
+      点击下方按钮开始检测 AI 痕迹
+      <br><br>
+      <button class="btn btn-primary btn-sm" onclick="runDetect()">🔍 开始检测</button>
+    </div>
+  `;
+}
+
+function closeDetect(e) {
+  if (e && e.target !== document.getElementById("detectOverlay")) return;
+  document.getElementById("detectOverlay").classList.remove("show");
+}
+
+async function runDetect() {
+  if (!rewrittenText) return;
 
   const apiKey = (getActiveKey() || {}).key;
   if (!apiKey) return toast("请先配置 API Key");
 
-  const btn = document.getElementById("detectBtn");
-  const resultEl = document.getElementById("aiDetectResult");
-  btn.disabled = true;
-  btn.textContent = "⏳ 检测中…";
-  resultEl.style.display = "";
-  resultEl.innerHTML = '<span style="color:var(--text-secondary);">⏳ 正在分析文本的 AI 痕迹…</span>';
+  const panel = document.getElementById("detectPanelBody");
+  panel.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-secondary);"><span class="spinner" style="border-color:var(--accent);border-top-color:transparent;"></span> 正在逐句分析…</div>';
 
-  const text = rewrittenText.length > 3000 ? rewrittenText.substring(0, 3000) : rewrittenText;
   const s = loadSettings();
+  const sentences = rewrittenText.split(/([。；!?！？\n])/g).reduce((acc, cur, i, arr) => {
+    if (i % 2 === 0 && cur.trim()) acc.push(cur.trim());
+    else if (i % 2 === 1 && acc.length > 0) acc[acc.length - 1] += cur;
+    return acc;
+  }, []).filter(s => s.trim().length > 5);
+
+  // Take up to 20 sentences for analysis
+  const toAnalyze = sentences.slice(0, 20);
+  const textToSend = toAnalyze.map((s, i) => `[${i}] ${s}`).join("\n");
 
   try {
     const resp = await fetch("/api/rewrite", {
@@ -1003,46 +1038,62 @@ async function detectAI() {
       body: JSON.stringify({
         apiKey,
         model: s.model,
-        temperature: 0.3,
-        max_tokens: 512,
+        temperature: 0.2,
+        max_tokens: 1024,
         messages: [
-          { role: "system", content: "你是一个专业的AI文本检测分析器。只返回JSON格式，不要其他内容。" },
-          { role: "user", content: `请分析以下文本的AI生成痕迹。返回JSON格式：{"score":数字0-100,"level":"低/中/高","reasons":["原因1","原因2"]}\n\n评分标准：0-30=人类写作，31-60=可能含AI辅助，61-100=高度疑似AI生成。\n\n分析角度：句式多样性、用词习惯、逻辑过渡、模板化表达程度。\n\n文本：\n${text}` }
+          { role: "system", content: "你是AI文本检测专家。只返回JSON，不要其他内容。" },
+          { role: "user", content: `分析以下文本（每句已编号），逐句判断AI痕迹程度。返回JSON：{"totalScore":0-100,"level":"低/中/高","sentences":[{"idx":编号,"score":0-100,"highlight":true/false}]}\n\n评分：0-30人类，31-60可能AI辅助，61-100高AI痕迹。highlight=true表示该句AI痕迹明显需标注。\n\n文本：\n${textToSend}` }
         ]
       })
     });
 
     const data = await resp.json();
-    let result;
-    try {
-      const content = data.choices?.[0]?.message?.content || "";
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      result = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-    } catch { result = null; }
+    const content = data.choices?.[0]?.message?.content || "";
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const result = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
 
-    if (!result || typeof result.score !== "number") {
-      resultEl.innerHTML = '<span style="color:var(--text-secondary);">⚠ 检测未返回有效结果，请重试</span>';
-    } else {
-      const colors = { "低": "#059669", "中": "#d97706", "高": "#ef4444" };
-      const bgColors = { "低": "#d1fae5", "中": "#fef3c7", "高": "#fee2e2" };
-      const color = colors[result.level] || "#6b7280";
-      const bg = bgColors[result.level] || "#f3f4f6";
-      resultEl.innerHTML = `
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-          <div style="font-size:32px;font-weight:700;color:${color};">${result.score}</div>
-          <div>
-            <span style="background:${bg};color:${color};padding:3px 12px;border-radius:12px;font-weight:600;font-size:12px;">${result.level}风险</span>
-            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">AI 概率评分 / 100</div>
-          </div>
-        </div>
-        <div style="font-size:12px;color:var(--text-secondary);">${(result.reasons||[]).map(r=>'• '+r).join('<br>')}</div>
-      `;
+    if (!result || typeof result.totalScore !== "number") {
+      panel.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-secondary);">⚠ 检测未返回有效结果，请重试<br><br><button class="btn btn-primary btn-sm" onclick="runDetect()">🔄 重试</button></div>';
+      return;
     }
+
+    const colors = { "低": "#059669", "中": "#d97706", "高": "#ef4444" };
+    const bgs = { "低": "#d1fae5", "中": "#fef3c7", "高": "#fee2e2" };
+    const c = colors[result.level] || "#6b7280";
+    const bg = bgs[result.level] || "#f3f4f6";
+
+    let html = `
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:40px;font-weight:700;color:${c};">${result.totalScore}</div>
+        <span style="background:${bg};color:${c};padding:4px 16px;border-radius:14px;font-weight:600;">${result.level}风险</span>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">AI 概率评分 / 100</div>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+        <span style="background:#fee2e2;padding:1px 6px;border-radius:3px;">红色</span>=高风险句
+        <span style="background:#fef3c7;padding:1px 6px;border-radius:3px;margin-left:6px;">黄色</span>=中风险句
+      </div>
+    `;
+
+    const sentMap = {};
+    (result.sentences || []).forEach(s => { sentMap[s.idx] = s; });
+
+    toAnalyze.forEach((sent, i) => {
+      const info = sentMap[i];
+      const iscore = info ? info.score : 0;
+      const highlight = info ? info.highlight : false;
+      let rowBg = "", tag = "";
+      if (highlight || iscore >= 60) { rowBg = "background:#fee2e2;"; tag = '<span style="background:#ef4444;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;">高风险</span>'; }
+      else if (iscore >= 30) { rowBg = "background:#fef3c7;"; tag = '<span style="background:#d97706;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;">中风险</span>'; }
+      html += `<div style="padding:8px 10px;margin-bottom:4px;border-radius:6px;font-size:13px;line-height:1.7;${rowBg}">${escapeHtml(sent)}${tag}</div>`;
+    });
+
+    if (sentences.length > 20) {
+      html += `<div style="text-align:center;color:var(--text-secondary);font-size:12px;padding:10px;">（仅显示前 20 句，共 ${sentences.length} 句）</div>`;
+    }
+
+    panel.innerHTML = html;
   } catch (err) {
-    resultEl.innerHTML = `<span style="color:var(--danger);">❌ 检测失败：${escapeHtml(err.message)}</span>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "🔍 检测AI痕迹";
+    panel.innerHTML = `<div style="text-align:center;padding:30px;color:var(--danger);">❌ ${escapeHtml(err.message)}<br><br><button class="btn btn-primary btn-sm" onclick="runDetect()">🔄 重试</button></div>`;
   }
 }
 
@@ -1082,8 +1133,6 @@ async function singleRewrite(apiKey) {
     outputEl.textContent = rewrittenText;
     document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
     document.getElementById("viewTabs").style.display = "flex";
-    document.getElementById("detectBtn").style.display = "";
-    document.getElementById("aiDetectResult").style.display = "none";
     switchView("result");
     saveHistory();
     toast("✅ 改写完成");
@@ -1135,8 +1184,6 @@ async function batchRewrite(apiKey) {
   document.getElementById("outputArea").textContent = rewrittenText;
   document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
   document.getElementById("viewTabs").style.display = "flex";
-  document.getElementById("detectBtn").style.display = "";
-  document.getElementById("aiDetectResult").style.display = "none";
   switchView("result");
   saveHistory();
   document.getElementById("progressWrap").style.display = "none";
