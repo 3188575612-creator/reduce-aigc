@@ -300,9 +300,11 @@
     </div>
     <div class="compare-area" id="compareArea" style="display:none;flex:1;overflow-y:auto;">
     </div>
+    <div id="aiDetectResult" style="display:none;margin-top:10px;padding:12px;border-radius:8px;font-size:13px;"></div>
     <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm" onclick="copyResult()">📋 复制</button>
       <button class="btn btn-ghost btn-sm" onclick="downloadResult()">💾 下载 MD</button>
+      <button class="btn btn-ghost btn-sm" id="detectBtn" onclick="detectAI()" style="display:none;">🔍 检测AI痕迹</button>
       <button class="btn btn-ghost btn-sm" onclick="clearAll()">🗑 清空</button>
     </div>
   </div>
@@ -708,6 +710,8 @@ function clearAll() {
   document.getElementById("viewTabs").style.display = "none";
   document.getElementById("compareArea").style.display = "none";
   document.getElementById("outputArea").style.display = "";
+  document.getElementById("detectBtn").style.display = "none";
+  document.getElementById("aiDetectResult").style.display = "none";
 }
 
 // ==================== Utils ====================
@@ -976,6 +980,73 @@ function clearHistory() {
   toast("历史已清空");
 }
 
+// ==================== AI Detection ====================
+async function detectAI() {
+  if (!rewrittenText) return toast("没有可检测的内容");
+
+  const apiKey = (getActiveKey() || {}).key;
+  if (!apiKey) return toast("请先配置 API Key");
+
+  const btn = document.getElementById("detectBtn");
+  const resultEl = document.getElementById("aiDetectResult");
+  btn.disabled = true;
+  btn.textContent = "⏳ 检测中…";
+  resultEl.style.display = "";
+  resultEl.innerHTML = '<span style="color:var(--text-secondary);">⏳ 正在分析文本的 AI 痕迹…</span>';
+
+  const text = rewrittenText.length > 3000 ? rewrittenText.substring(0, 3000) : rewrittenText;
+  const s = loadSettings();
+
+  try {
+    const resp = await fetch("/api/rewrite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey,
+        model: s.model,
+        temperature: 0.3,
+        max_tokens: 512,
+        messages: [
+          { role: "system", content: "你是一个专业的AI文本检测分析器。只返回JSON格式，不要其他内容。" },
+          { role: "user", content: `请分析以下文本的AI生成痕迹。返回JSON格式：{"score":数字0-100,"level":"低/中/高","reasons":["原因1","原因2"]}\n\n评分标准：0-30=人类写作，31-60=可能含AI辅助，61-100=高度疑似AI生成。\n\n分析角度：句式多样性、用词习惯、逻辑过渡、模板化表达程度。\n\n文本：\n${text}` }
+        ]
+      })
+    });
+
+    const data = await resp.json();
+    let result;
+    try {
+      const content = data.choices?.[0]?.message?.content || "";
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      result = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    } catch { result = null; }
+
+    if (!result || typeof result.score !== "number") {
+      resultEl.innerHTML = '<span style="color:var(--text-secondary);">⚠ 检测未返回有效结果，请重试</span>';
+    } else {
+      const colors = { "低": "#059669", "中": "#d97706", "高": "#ef4444" };
+      const bgColors = { "低": "#d1fae5", "中": "#fef3c7", "高": "#fee2e2" };
+      const color = colors[result.level] || "#6b7280";
+      const bg = bgColors[result.level] || "#f3f4f6";
+      resultEl.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+          <div style="font-size:32px;font-weight:700;color:${color};">${result.score}</div>
+          <div>
+            <span style="background:${bg};color:${color};padding:3px 12px;border-radius:12px;font-weight:600;font-size:12px;">${result.level}风险</span>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">AI 概率评分 / 100</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);">${(result.reasons||[]).map(r=>'• '+r).join('<br>')}</div>
+      `;
+    }
+  } catch (err) {
+    resultEl.innerHTML = `<span style="color:var(--danger);">❌ 检测失败：${escapeHtml(err.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔍 检测AI痕迹";
+  }
+}
+
 // ==================== Modified startRewrite ====================
 const originalStartRewrite = startRewrite;
 startRewrite = async function() {
@@ -1012,6 +1083,8 @@ async function singleRewrite(apiKey) {
     outputEl.textContent = rewrittenText;
     document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
     document.getElementById("viewTabs").style.display = "flex";
+    document.getElementById("detectBtn").style.display = "";
+    document.getElementById("aiDetectResult").style.display = "none";
     switchView("result");
     saveHistory();
     toast("✅ 改写完成");
@@ -1063,6 +1136,8 @@ async function batchRewrite(apiKey) {
   document.getElementById("outputArea").textContent = rewrittenText;
   document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
   document.getElementById("viewTabs").style.display = "flex";
+  document.getElementById("detectBtn").style.display = "";
+  document.getElementById("aiDetectResult").style.display = "none";
   switchView("result");
   saveHistory();
   document.getElementById("progressWrap").style.display = "none";
