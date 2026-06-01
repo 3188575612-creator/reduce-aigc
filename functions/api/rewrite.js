@@ -67,9 +67,20 @@ export async function onRequest(context) {
       }),
     });
 
-    const data = await resp.text();
+    const ct = resp.headers.get("content-type") || "";
+    const raw = await resp.text();
 
-    return new Response(data, {
+    // If upstream returned non-JSON, wrap it
+    if (!ct.includes("application/json")) {
+      return new Response(JSON.stringify({
+        error: { message: raw.substring(0, 500) || `HTTP ${resp.status}` }
+      }), {
+        status: resp.status,
+        headers: { "Content-Type": "application/json", ...corsHeaders() },
+      });
+    }
+
+    return new Response(raw, {
       status: resp.status,
       headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
