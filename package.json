@@ -1,0 +1,6 @@
+{
+  "name": "aigc-reducer",
+  "version": "1.0.0",
+  "description": "降低论文AIGC率的文本改写工具",
+  "scripts": { "start": "node server.js" }
+}
