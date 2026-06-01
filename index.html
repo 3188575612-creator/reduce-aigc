@@ -1058,7 +1058,7 @@ startRewrite = async function() {
 
   // Batch mode for long text
   if (originalText.length > 2000) {
-    if (!confirm(`原文 ${originalText.length} 字，超过 2000 字将自动分段改写（每段 ≤1500 字），降低 AIGC 率的效果会更均匀。\n\n是否继续？`)) return;
+    if (!confirm(`原文 ${originalText.length} 字，超过 2000 字将自动分段改写（每段 ≤500 字），降低 AIGC 率的效果会更均匀。\n\n是否继续？`)) return;
     return batchRewrite(apiKey);
   }
 
@@ -1104,7 +1104,7 @@ async function batchRewrite(apiKey) {
   const chunks = [];
   let current = "";
   for (const p of paragraphs) {
-    if (current && (current + p).length > 1500) {
+    if (current && (current + p).length > 500) {
       chunks.push(current.trim());
       current = p;
     } else {
