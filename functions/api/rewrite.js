@@ -6,10 +6,18 @@ function corsHeaders() {
   };
 }
 
+const ENDPOINTS = {
+  "deepseek-v4-pro":  { url:"https://api.deepseek.com/v1/chat/completions", name:"deepseek-v4-pro" },
+  "deepseek-v4-flash": { url:"https://api.deepseek.com/v1/chat/completions", name:"deepseek-v4-flash" },
+  "glm-4-flash":       { url:"https://open.bigmodel.cn/api/paas/v4/chat/completions", name:"glm-4-flash" },
+  "qwen-turbo":        { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-turbo" },
+  "qwen-plus":         { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-plus" },
+  "xiaomimimo":        { url:"https://token-plan-cn.xiaomimimo.com/v1/chat/completions", name:"mimo-v2-pro" },
+};
+
 export async function onRequest(context) {
   const { request } = context;
 
-  // CORS 预检
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders() });
   }
@@ -22,9 +30,7 @@ export async function onRequest(context) {
   }
 
   let body;
-  try {
-    body = await request.json();
-  } catch {
+  try { body = await request.json(); } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON" }), {
       status: 400,
       headers: { "Content-Type": "application/json", ...corsHeaders() },
@@ -40,15 +46,17 @@ export async function onRequest(context) {
     });
   }
 
+  const ep = ENDPOINTS[model] || ENDPOINTS["deepseek-v4-pro"];
+
   try {
-    const resp = await fetch("https://api.deepseek.com/v1/chat/completions", {
+    const resp = await fetch(ep.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model,
+        model: ep.name,
         messages,
         temperature,
         max_tokens,
