@@ -12,7 +12,7 @@ const ENDPOINTS = {
   "glm-4-flash":       { url:"https://open.bigmodel.cn/api/paas/v4/chat/completions", name:"glm-4-flash" },
   "qwen-turbo":        { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-turbo" },
   "qwen-plus":         { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-plus" },
-  "xiaomimimo":        { url:"https://token-plan-cn.xiaomimimo.com/v1/chat/completions", name:"mimo-v2-pro" },
+  "xiaomimimo":        { url:"https://token-plan-cn.xiaomimimo.com/v1/chat/completions", name:"mimo-v2.5-pro" },
 };
 
 export async function onRequest(context) {
