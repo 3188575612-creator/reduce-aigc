@@ -59,10 +59,14 @@ export async function onRequest(context) {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
+    const cappedTemp = (model === "glm-4.7")
+      ? Math.min(temperature, 1.0)
+      : temperature;
+
     const reqBody = {
       model: ep.name,
       messages,
-      temperature,
+      temperature: cappedTemp,
       max_tokens: cappedTokens,
     };
 
