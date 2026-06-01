@@ -47,6 +47,9 @@ export async function onRequest(context) {
   }
 
   const ep = ENDPOINTS[model] || ENDPOINTS["deepseek-v4-pro"];
+  const cappedTokens = (model === "glm-4.7" || model === "qwen-turbo" || model === "qwen-plus")
+    ? Math.min(max_tokens, 4096)
+    : max_tokens;
 
   try {
     const headers = { "Content-Type": "application/json" };
@@ -56,15 +59,17 @@ export async function onRequest(context) {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
+    const reqBody = {
+      model: ep.name,
+      messages,
+      temperature,
+      max_tokens: cappedTokens,
+    };
+
     const resp = await fetch(ep.url, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        model: ep.name,
-        messages,
-        temperature,
-        max_tokens,
-      }),
+      body: JSON.stringify(reqBody),
     });
 
     const ct = resp.headers.get("content-type") || "";
