@@ -229,6 +229,11 @@
       <button class="strategy-btn" data-strategy="human-inject">✍️ 降AI·风格</button>
     </div>
     <span class="strategy-desc" id="strategyDesc">分号长段 + 句首多样 + 段落不均</span>
+    <span class="strategy-label" style="margin-left:14px;">改写强度</span>
+    <div class="strategy-group" id="intensityGroup">
+      <button class="strategy-btn active" data-intensity="normal">🌿 普通</button>
+      <button class="strategy-btn" data-intensity="heavy">🔥 重度</button>
+    </div>
   </div>
 
   <!-- Left: Input -->
@@ -366,8 +371,14 @@ const STRATEGIES = {
 };
 
 let currentStrategy = "sentence-shuffle";
+let currentIntensity = "normal";
 let originalText = "";
 let rewrittenText = "";
+
+const INTENSITY = {
+  normal: { temperature: 0.9, maxMultiplier: 1.5 },
+  heavy:  { temperature: 1.2, maxMultiplier: 2.2 }
+};
 
 // ==================== Init ====================
 document.addEventListener("DOMContentLoaded", () => {
@@ -379,6 +390,15 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.classList.add("active");
     currentStrategy = btn.dataset.strategy;
     document.getElementById("strategyDesc").textContent = STRATEGIES[currentStrategy].desc;
+  });
+
+  // 强度切换
+  document.getElementById("intensityGroup").addEventListener("click", (e) => {
+    const btn = e.target.closest(".strategy-btn");
+    if (!btn || !btn.dataset.intensity) return;
+    document.querySelectorAll("#intensityGroup .strategy-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentIntensity = btn.dataset.intensity;
   });
 
   // 字数统计
@@ -542,8 +562,8 @@ async function startRewrite() {
         body: JSON.stringify({
           apiKey: activeKey.key,
           model: s.model,
-          temperature: attempt === 0 ? 0.9 : 1.0 + attempt * 0.1,
-          max_tokens: Math.max(4096, Math.ceil(originalText.length * 1.8)),
+          temperature: INTENSITY[currentIntensity].temperature + (attempt > 0 ? attempt * 0.1 : 0),
+          max_tokens: Math.max(4096, Math.ceil(originalText.length * INTENSITY[currentIntensity].maxMultiplier)),
           messages: [
             { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
             { role: "user", content: strategy.prompt + "\n\n" + originalText }
