@@ -7,12 +7,12 @@ function corsHeaders() {
 }
 
 const ENDPOINTS = {
-  "deepseek-v4-pro":  { url:"https://api.deepseek.com/v1/chat/completions", name:"deepseek-v4-pro" },
-  "deepseek-v4-flash": { url:"https://api.deepseek.com/v1/chat/completions", name:"deepseek-v4-flash" },
-  "glm-4-flash":       { url:"https://open.bigmodel.cn/api/paas/v4/chat/completions", name:"glm-4-flash" },
-  "qwen-turbo":        { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-turbo" },
-  "qwen-plus":         { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-plus" },
-  "xiaomimimo":        { url:"https://token-plan-cn.xiaomimimo.com/v1/chat/completions", name:"mimo-v2.5-pro" },
+  "deepseek-v4-pro":  { url:"https://api.deepseek.com/v1/chat/completions", name:"deepseek-v4-pro", auth:"bearer" },
+  "deepseek-v4-flash": { url:"https://api.deepseek.com/v1/chat/completions", name:"deepseek-v4-flash", auth:"bearer" },
+  "glm-4-flash":       { url:"https://open.bigmodel.cn/api/paas/v4/chat/completions", name:"glm-4-flash", auth:"bearer" },
+  "qwen-turbo":        { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-turbo", auth:"bearer" },
+  "qwen-plus":         { url:"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", name:"qwen-plus", auth:"bearer" },
+  "xiaomimimo":        { url:"https://api.xiaomimimo.com/v1/chat/completions", name:"mimo-v2.5-pro", auth:"apikey" },
 };
 
 export async function onRequest(context) {
@@ -49,12 +49,16 @@ export async function onRequest(context) {
   const ep = ENDPOINTS[model] || ENDPOINTS["deepseek-v4-pro"];
 
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (ep.auth === "apikey") {
+      headers["api-key"] = apiKey;
+    } else {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
     const resp = await fetch(ep.url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify({
         model: ep.name,
         messages,
