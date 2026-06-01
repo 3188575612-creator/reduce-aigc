@@ -206,12 +206,10 @@
   <div class="strategy-bar card">
     <span class="strategy-label">改写策略</span>
     <div class="strategy-group" id="strategyGroup">
-      <button class="strategy-btn active" data-strategy="academic-polish">🎓 学术润色</button>
-      <button class="strategy-btn" data-strategy="sentence-shuffle">🔀 句式打散</button>
-      <button class="strategy-btn" data-strategy="synonym-replace">📖 同义词替换</button>
+      <button class="strategy-btn active" data-strategy="sentence-shuffle">🔀 句式打散</button>
       <button class="strategy-btn" data-strategy="human-inject">✍️ 人类风格注入</button>
     </div>
-    <span class="strategy-desc" id="strategyDesc">保持学术严谨，调整表达方式，降低AI痕迹</span>
+    <span class="strategy-desc" id="strategyDesc">大幅打散AI工整句式，显著降低检测率</span>
   </div>
 
   <!-- Left: Input -->
@@ -313,56 +311,32 @@ function getActiveKey() {
 
 // ==================== Strategies ====================
 const STRATEGIES = {
-  "academic-polish": {
-    name:"学术润色", desc:"保持学术严谨，调整表达方式，降低AI痕迹",
-    prompt:`你是一位资深学术论文润色专家。请对以下学术文本进行改写，要求：
-1. 保持原意和学术严谨性不变
-2. 调整句式结构，避免AI生成的模板化表达
-3. 适当变换语序，打破过于工整的排比结构
-4. 使用更自然的中文学术表达，偶尔使用不完美但地道的句式
-5. 保持专业术语准确
-6. 输出改写后的完整文本，不要加任何解释说明
-
-改写以下文本：`
-  },
   "sentence-shuffle": {
-    name:"句式打散", desc:"打破AI工整句式，长短句搭配，增加阅读节奏感",
-    prompt:`你是一位文本改写专家，专门降低AIGC检测率。请对以下文本进行大幅句式重组，要求：
-1. 打破原有的句子顺序和结构
-2. 将长句拆分为短句，或将短句合并为复合句
-3. 改变句子开头方式（不要总用"该""其""这一"开头）
-4. 让句子长度呈现明显的不规则分布
-5. 保持原意，但表达方式要有显著变化
-6. 输出改写后的完整文本，不要加任何解释说明
-
-改写以下文本：`
-  },
-  "synonym-replace": {
-    name:"同义词替换", desc:"大量替换词汇和短语，改变用词习惯",
-    prompt:`你是一位学术文本降重专家。请对以下文本进行深度同义改写，要求：
-1. 尽可能替换每个可以替换的词汇
-2. 改变短语搭配和固定表达
-3. 调整修饰语的位置和形式
-4. 保持专业术语的核心含义不变，但用不同的表述方式
-5. 输出改写后的完整文本，不要加任何解释说明
-
-改写以下文本：`
+    name:"句式打散", desc:"大幅打散AI工整句式，显著降低检测率",
+    prompt:`你是一位专门降低AIGC检测率的文本改写专家。请对以下文本进行深度改写，要求：
+1. 彻底打散原句结构——将长句拆分为短句，短句合并为复合句，制造不规则的句长分布
+2. 避免任何AI常见的句式模板：严禁使用"该""其""这一"作为句首，避免排比、对仗等工整结构
+3. 调整段落内句子的语义顺序，让逻辑流看起来更跳跃但依然连贯
+4. 适当插入口语化的衔接语（如"说白了""实际上""有意思的是"）来打断学术腔
+5. 至少替换 30% 的关键词汇为同义表达
+6. 保持原意不变，专业术语保留，但整段文字读起来必须像真人写的
+7. 只输出改写后的文本，不加任何解释`
   },
   "human-inject": {
-    name:"人类风格注入", desc:"注入口语化过渡词、个人观点痕迹",
-    prompt:`你是一位熟悉人类写作习惯的编辑。请对以下文本进行"去AI化"改写，要求：
-1. 加入自然的过渡词和连接词
-2. 偶尔使用设问句或反问句
-3. 适当加入主观性修饰
-4. 使用非模板化的开头和结尾
-5. 保持学术严谨性，但表达方式更像人类学者
-6. 输出改写后的完整文本，不要加任何解释说明
-
-改写以下文本：`
+    name:"人类风格注入", desc:"注入真人写作痕迹，自然降AI",
+    prompt:`你是一位深谙人类写作习惯的编辑，任务是让文本读起来完全不像AI写的。请对以下文本进行"去AI化"深度改写，要求：
+1. 在段落中自然穿插过渡性口语表达，如"说实话""有意思的是""换个角度看""你可能注意到了"
+2. 适当加入设问句和反问句（每段至少 1 个），打破AI平铺直叙的风格
+3. 插入主观判断和模糊限定词，如"某种程度上""大致可以认为""通常来说""我个人觉得"
+4. 偶尔使用不完美但地道的句式——轻微的重复、修正、插入语 —— 这是人类写作的典型特征
+5. 句子长度要有显著波动：有的句子极短（三五字），有的句子较长但自然
+6. 段落内至少出现 1-2 处"思考痕迹"，如"这里需要说明的是""有必要指出"
+7. 保持学术内容准确，但表达方式要像人在写，不像机器生成的
+8. 只输出改写后的文本，不加任何解释`
   }
 };
 
-let currentStrategy = "academic-polish";
+let currentStrategy = "sentence-shuffle";
 let originalText = "";
 let rewrittenText = "";
 
