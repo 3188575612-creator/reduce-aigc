@@ -496,44 +496,66 @@ async function startRewrite() {
   const outputEl = document.getElementById("outputArea");
   outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + s.model + ' 改写…</span>';
 
-  try {
-    const strategy = STRATEGIES[currentStrategy];
-    const resp = await fetch("/api/rewrite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        apiKey: activeKey.key,
-        model: s.model,
-        temperature: 0.9,
-        max_tokens: Math.max(4096, Math.ceil(originalText.length * 1.8)),
-        messages: [
-          { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
-          { role: "user", content: strategy.prompt + "\n\n" + originalText }
-        ]
-      })
-    });
+  const MAX_RETRIES = 2;
+  let lastError = null;
 
-    const data = await resp.json();
-
-    if (!resp.ok || data.error) {
-      throw new Error(data.error?.message || data.error || "请求失败");
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      outputEl.innerHTML = `<span style="color:var(--warning)">⏳ 第 ${attempt + 1} 次尝试改写…</span>`;
+      await new Promise(r => setTimeout(r, 1500));
     }
 
-    rewrittenText = data.choices?.[0]?.message?.content || "";
-    if (!rewrittenText) throw new Error("API 返回为空");
+    try {
+      const strategy = STRATEGIES[currentStrategy];
+      const resp = await fetch("/api/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: activeKey.key,
+          model: s.model,
+          temperature: attempt === 0 ? 0.9 : 1.0 + attempt * 0.1,
+          max_tokens: Math.max(4096, Math.ceil(originalText.length * 1.8)),
+          messages: [
+            { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
+            { role: "user", content: strategy.prompt + "\n\n" + originalText }
+          ]
+        })
+      });
 
-    rewrittenText = rewrittenText.replace(/^```[\s\S]*?\n/, "").replace(/\n```$/, "").trim();
+      const data = await resp.json();
 
-    outputEl.textContent = rewrittenText;
-    document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
-    toast("✅ 改写完成");
-  } catch (err) {
-    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(err.message)}</span>`;
-    toast("改写失败：" + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = "🔄 开始改写";
+      if (!resp.ok || data.error) {
+        throw new Error(data.error?.message || data.error || "请求失败");
+      }
+
+      rewrittenText = data.choices?.[0]?.message?.content || "";
+      if (!rewrittenText) {
+        lastError = "API 返回为空";
+        continue;
+      }
+
+      rewrittenText = rewrittenText.replace(/^```[\s\S]*?\n/, "").replace(/\n```$/, "").trim();
+
+      if (rewrittenText.length < originalText.length * 0.3) {
+        lastError = "返回内容过短";
+        continue;
+      }
+
+      outputEl.textContent = rewrittenText;
+      document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
+      toast(attempt > 0 ? "✅ 改写完成（重试后成功）" : "✅ 改写完成");
+      btn.disabled = false;
+      btn.innerHTML = "🔄 开始改写";
+      return;
+    } catch (err) {
+      lastError = err.message;
+    }
   }
+
+  outputEl.innerHTML = `<span style="color:var(--danger)">❌ 改写失败（已重试 ${MAX_RETRIES} 次）：${escapeHtml(lastError)}<br><br>建议：缩短文本至 1500 字以内或切换模型。</span>`;
+  toast("改写失败：" + lastError);
+  btn.disabled = false;
+  btn.innerHTML = "🔄 开始改写";
 }
 
 // ==================== Export ====================
