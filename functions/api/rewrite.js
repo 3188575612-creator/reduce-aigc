@@ -1,15 +1,23 @@
-export async function onRequestPost(context) {
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
+export async function onRequest(context) {
   const { request } = context;
 
   // CORS 预检
   if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
+    return new Response(null, { status: 204, headers: corsHeaders() });
+  }
+
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ error: "仅支持 POST" }), {
+      status: 405,
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   }
 
@@ -19,7 +27,7 @@ export async function onRequestPost(context) {
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON" }), {
       status: 400,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   }
 
@@ -28,7 +36,7 @@ export async function onRequestPost(context) {
   if (!apiKey || !messages) {
     return new Response(JSON.stringify({ error: "缺少 apiKey 或 messages" }), {
       status: 400,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   }
 
@@ -51,15 +59,12 @@ export async function onRequestPost(context) {
 
     return new Response(data, {
       status: resp.status,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: "API 请求失败: " + err.message }), {
       status: 502,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   }
 }
