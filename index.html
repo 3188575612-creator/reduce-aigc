@@ -174,6 +174,25 @@
   }
   .toast.show { opacity:1; }
 
+  /* ---- View tabs ---- */
+  .view-tabs { display:flex; gap:4px; margin-bottom:10px; }
+  .view-tab {
+    padding:5px 14px; border:1px solid var(--border); border-radius:16px;
+    background:transparent; cursor:pointer; font-size:12px; font-weight:500;
+    color:var(--text-secondary); transition:all .15s;
+  }
+  .view-tab:hover { border-color:var(--accent); color:var(--accent); }
+  .view-tab.active { background:var(--accent-light); border-color:var(--accent); color:var(--accent); }
+
+  /* ---- Compare view ---- */
+  .compare-area { padding:4px; font-size:14px; line-height:1.9; }
+  .cmp-row { display:flex; gap:8px; margin-bottom:10px; padding:10px; border-radius:6px; border:1px solid var(--border); }
+  .cmp-left { flex:1; color:#9ca3af; padding-right:10px; border-right:1px dashed var(--border); }
+  .cmp-right { flex:1; padding-left:10px; }
+  .cmp-add { background:#d1fae5; color:#065f46; padding:1px 3px; border-radius:2px; }
+  .cmp-remove { background:#fee2e2; color:#991b1b; text-decoration:line-through; padding:1px 3px; border-radius:2px; }
+  .cmp-label { font-size:11px; color:var(--text-secondary); margin-bottom:4px; font-weight:600; }
+
   /* ---- Divider ---- */
   .divider { height:1px; background:var(--border); margin:16px 0; }
 
@@ -229,8 +248,15 @@
       <span class="panel-title">📤 改写结果</span>
       <span class="char-count" id="outputCount">0 字</span>
     </div>
+    <div class="view-tabs" id="viewTabs" style="display:none;">
+      <button class="view-tab active" data-view="result" onclick="switchView('result')">改写结果</button>
+      <button class="view-tab" data-view="compare" onclick="switchView('compare')">对比视图</button>
+      <button class="view-tab" data-view="original" onclick="switchView('original')">原文</button>
+    </div>
     <div class="output-area" id="outputArea" style="flex:1;">
       <span class="output-placeholder">改写后的文本将显示在这里…</span>
+    </div>
+    <div class="compare-area" id="compareArea" style="display:none;flex:1;overflow-y:auto;">
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm" onclick="copyResult()">📋 复制</button>
@@ -546,6 +572,8 @@ async function startRewrite() {
 
       outputEl.textContent = rewrittenText;
       document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
+      document.getElementById("viewTabs").style.display = "flex";
+      switchView("result");
       toast(attempt > 0 ? "✅ 改写完成（重试后成功）" : "✅ 改写完成");
       btn.disabled = false;
       btn.innerHTML = "🔄 开始改写";
@@ -590,6 +618,9 @@ function clearAll() {
   document.getElementById("outputCount").textContent = "0 字";
   originalText = "";
   rewrittenText = "";
+  document.getElementById("viewTabs").style.display = "none";
+  document.getElementById("compareArea").style.display = "none";
+  document.getElementById("outputArea").style.display = "";
 }
 
 // ==================== Utils ====================
@@ -605,6 +636,118 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ==================== View switching ====================
+function switchView(view) {
+  document.querySelectorAll(".view-tab").forEach(t => t.classList.remove("active"));
+  document.querySelector(`[data-view="${view}"]`).classList.add("active");
+  document.getElementById("outputArea").style.display = view === "result" || view === "original" ? "" : "none";
+  document.getElementById("compareArea").style.display = view === "compare" ? "" : "none";
+
+  if (view === "original") {
+    document.getElementById("outputArea").textContent = originalText;
+  } else if (view === "result") {
+    document.getElementById("outputArea").textContent = rewrittenText;
+  } else if (view === "compare") {
+    renderCompare();
+  }
+}
+
+// ==================== Diff & Compare ====================
+function renderCompare() {
+  const orig = originalText;
+  const rewritten = rewrittenText;
+  if (!orig || !rewritten) return;
+
+  const oSentences = splitSentences(orig);
+  const rSentences = splitSentences(rewritten);
+
+  let html = "";
+  const maxLen = Math.max(oSentences.length, rSentences.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const o = oSentences[i] || "";
+    const r = rSentences[i] || "";
+
+    if (i < oSentences.length && i < rSentences.length) {
+      const [leftHtml, rightHtml] = diffWords(o, r);
+      html += `<div class="cmp-row"><div class="cmp-left">${leftHtml}</div><div class="cmp-right">${rightHtml}</div></div>`;
+    } else if (i < oSentences.length) {
+      html += `<div class="cmp-row"><div class="cmp-left" style="background:#fee2e2;">${escapeHtml(o)}</div><div class="cmp-right" style="color:#c4c7cc;">（已删除）</div></div>`;
+    } else {
+      html += `<div class="cmp-row"><div class="cmp-left" style="color:#c4c7cc;">（新增）</div><div class="cmp-right" style="background:#d1fae5;">${escapeHtml(r)}</div></div>`;
+    }
+  }
+
+  document.getElementById("compareArea").innerHTML = html;
+}
+
+function splitSentences(text) {
+  return text.split(/([。；!?！？
+])/g).reduce((acc, cur, i, arr) => {
+    if (i % 2 === 0 && cur.trim()) acc.push(cur.trim());
+    else if (i % 2 === 1 && acc.length > 0) acc[acc.length - 1] += cur;
+    return acc;
+  }, []).filter(s => s.trim());
+}
+
+function diffWords(oldStr, newStr) {
+  const oWords = tokenize(oldStr);
+  const nWords = tokenize(newStr);
+  const lcs = computeLCS(oWords, nWords);
+
+  let oIdx = 0, nIdx = 0, lIdx = 0;
+  let oHtml = "", nHtml = "";
+
+  while (oIdx < oWords.length || nIdx < nWords.length) {
+    if (lIdx < lcs.length && oIdx < oWords.length && nIdx < nWords.length && oWords[oIdx] === lcs[lIdx] && nWords[nIdx] === lcs[lIdx]) {
+      oHtml += escapeHtml(oWords[oIdx]);
+      nHtml += escapeHtml(nWords[nIdx]);
+      oIdx++; nIdx++; lIdx++;
+    } else {
+      if (oIdx < oWords.length && (lIdx >= lcs.length || oWords[oIdx] !== lcs[lIdx])) {
+        oHtml += `<span class="cmp-remove">${escapeHtml(oWords[oIdx])}</span>`;
+        oIdx++;
+      }
+      if (nIdx < nWords.length && (lIdx >= lcs.length || nWords[nIdx] !== lcs[lIdx])) {
+        nHtml += `<span class="cmp-add">${escapeHtml(nWords[nIdx])}</span>`;
+        nIdx++;
+      }
+    }
+  }
+  return [oHtml, nHtml];
+}
+
+function tokenize(text) {
+  const tokens = [];
+  let buf = "";
+  for (const ch of text) {
+    if (/[\u4e00-\u9fff\w]/.test(ch)) {
+      buf += ch;
+    } else {
+      if (buf) { tokens.push(buf); buf = ""; }
+      tokens.push(ch);
+    }
+  }
+  if (buf) tokens.push(buf);
+  return tokens;
+}
+
+function computeLCS(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+  const result = [];
+  let i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (a[i-1] === b[j-1]) { result.unshift(a[i-1]); i--; j--; }
+    else if (dp[i-1][j] > dp[i][j-1]) i--;
+    else j--;
+  }
+  return result;
 }
 </script>
 </body>
