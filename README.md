@@ -2,12 +2,14 @@
 
 降低论文 AIGC 检测率的文本改写工具。通过 DeepSeek API 对论文段落进行"去 AI 化"改写。
 
-## 快速部署（Vercel）
+## 快速部署（Cloudflare Pages）
 
-1. 安装 Vercel CLI：`npm i -g vercel`
-2. 在项目目录运行：`vercel`
-3. 按提示完成部署，得到一个公网链接
-4. 把链接发给用户，打开即用
+1. 打开 [dash.cloudflare.com](https://dash.cloudflare.com) → Workers & Pages → Create → Pages → Connect to Git
+2. 授权 GitHub，选择 `reduce-aigc` 仓库
+3. Build settings 保持默认（无需构建命令），直接点 Deploy
+4. 得到一个 `xxx.pages.dev` 链接，发给用户即用
+
+> Cloudflare Pages 每天 10 万次免费请求，足够使用。
 
 ## 本地开发
 
