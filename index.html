@@ -385,19 +385,7 @@
     </div>
     <div class="history-panel-body" id="detectPanelBody">
       <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">
-        改写完成后点击下方按钮开始检测
-        <br><br>
-        <div style="margin-bottom:10px;">
-          <div style="font-size:11px;margin-bottom:4px;color:var(--text-secondary);">检测模型（推荐 DeepSeek）</div>
-          <select id="detectModel" class="model-select" style="width:auto;display:inline-block;">
-            <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
-            <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
-            <option value="glm-4-flash">GLM-4-Flash</option>
-            <option value="qwen-turbo">Qwen-Turbo</option>
-            <option value="qwen-plus">Qwen-Plus</option>
-            <option value="xiaomimimo">Xiaomi MiMo</option>
-          </select>
-        </div>
+        改写完成后点击下方按钮开始检测<br><br>
         <button class="btn btn-primary btn-sm" onclick="runDetect()">🔍 开始检测</button>
       </div>
     </div>
@@ -1012,23 +1000,9 @@ function clearHistory() {
 function openDetect() {
   if (!rewrittenText) return toast("请先完成改写");
   document.getElementById("detectOverlay").classList.add("show");
-  const s = loadSettings();
-  const defaultModel = s.model || "deepseek-v4-pro";
   document.getElementById("detectPanelBody").innerHTML = `
     <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">
-      点击下方按钮开始检测 AI 痕迹
-      <br><br>
-      <div style="margin-bottom:10px;">
-        <div style="font-size:11px;margin-bottom:4px;color:var(--text-secondary);">检测模型（推荐 DeepSeek）</div>
-        <select id="detectModel" class="model-select" style="width:auto;display:inline-block;">
-          <option value="deepseek-v4-pro" ${defaultModel==="deepseek-v4-pro"?"selected":""}>DeepSeek V4 Pro</option>
-          <option value="deepseek-v4-flash" ${defaultModel==="deepseek-v4-flash"?"selected":""}>DeepSeek V4 Flash</option>
-          <option value="glm-4-flash" ${defaultModel==="glm-4-flash"?"selected":""}>GLM-4-Flash</option>
-          <option value="qwen-turbo" ${defaultModel==="qwen-turbo"?"selected":""}>Qwen-Turbo</option>
-          <option value="qwen-plus" ${defaultModel==="qwen-plus"?"selected":""}>Qwen-Plus</option>
-          <option value="xiaomimimo" ${defaultModel==="xiaomimimo"?"selected":""}>Xiaomi MiMo</option>
-        </select>
-      </div>
+      点击下方按钮开始检测 AI 痕迹<br><br>
       <button class="btn btn-primary btn-sm" onclick="runDetect()">🔍 开始检测</button>
     </div>
   `;
@@ -1048,7 +1022,8 @@ async function runDetect() {
   const panel = document.getElementById("detectPanelBody");
   panel.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-secondary);"><span class="spinner" style="border-color:var(--accent);border-top-color:transparent;"></span> 正在逐句分析…</div>';
 
-  const detectModel = document.getElementById("detectModel")?.value || "deepseek-v4-pro";
+  const s = loadSettings();
+  const detectModel = s.model || "deepseek-v4-pro";
   const sentences = rewrittenText.split(/([。；!?！？\n])/g).reduce((acc, cur, i, arr) => {
     if (i % 2 === 0 && cur.trim()) acc.push(cur.trim());
     else if (i % 2 === 1 && acc.length > 0) acc[acc.length - 1] += cur;
