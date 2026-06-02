@@ -1213,88 +1213,15 @@ async function doRewrite(apiKey, s, text, attempt) {
   const MAX_RETRIES = 2;
   let lastError = null;
 
-  const strategy = STRATEGIES[currentStrategy];
-  const outputEl = document.getElementById("outputArea");
-  let fullText = "";
-  let done = false;
-
-  for (let retry = 0; retry <= MAX_RETRIES && !done; retry++) {
-    try {
-      const resp = await fetch("/api/rewrite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey,
-          model: s.model,
-          stream: true,
-          temperature: INTENSITY[currentIntensity].temperature + (retry > 0 ? retry * 0.1 : 0),
-          max_tokens: Math.max(4096, Math.ceil(text.length * INTENSITY[currentIntensity].maxMultiplier)),
-          messages: [
-            { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
-            { role: "user", content: strategy.prompt + "\n\n" + text }
-          ]
-        })
-      });
-
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.error?.message || "请求失败");
-      }
-
-      // Stream reading
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done: readerDone } = await reader.read();
-        if (readerDone) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE lines
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") { done = true; break; }
-
-          try {
-            const json = JSON.parse(data);
-            const delta = json.choices?.[0]?.delta?.content || "";
-            if (delta) {
-              fullText += delta;
-              outputEl.textContent = fullText;
-              document.getElementById("outputCount").textContent = fullText.length + " 字";
-            }
-          } catch { /* skip malformed line */ }
-        }
-        if (done) break;
-      }
-
-      if (!fullText) { lastError = "流式返回为空"; continue; }
-      fullText = fullText.replace(/^```[\s\S]*?\n/, "").replace(/\n```$/, "").trim();
-      if (fullText.length < text.length * 0.3) { lastError = "返回过短"; continue; }
-
-      return { success: true, text: fullText };
-    } catch (err) {
-      lastError = err.message;
-      // Don't retry for streaming - fall through to non-streaming below
-      break;
-    }
-  }
-
-  // Fallback: non-streaming
   for (let retry = 0; retry <= MAX_RETRIES; retry++) {
     try {
+      const strategy = STRATEGIES[currentStrategy];
       const resp = await fetch("/api/rewrite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           apiKey,
           model: s.model,
-          stream: false,
           temperature: INTENSITY[currentIntensity].temperature + (retry > 0 ? retry * 0.1 : 0),
           max_tokens: Math.max(4096, Math.ceil(text.length * INTENSITY[currentIntensity].maxMultiplier)),
           messages: [
@@ -1310,7 +1237,11 @@ async function doRewrite(apiKey, s, text, attempt) {
       let result = data.choices?.[0]?.message?.content || "";
       if (!result) { lastError = "API 返回为空"; continue; }
       result = result.replace(/^```[\s\S]*?\n/, "").replace(/\n```$/, "").trim();
+
       if (result.length < text.length * 0.3) { lastError = "返回过短"; continue; }
+
+      // Typewriter effect
+      await typewriterEffect(document.getElementById("outputArea"), result);
 
       return { success: true, text: result };
     } catch (err) {
@@ -1320,6 +1251,25 @@ async function doRewrite(apiKey, s, text, attempt) {
   }
 
   return { success: false, error: lastError };
+}
+
+async function typewriterEffect(el, text) {
+  const speed = text.length > 1000 ? 8 : 15; // ms per chunk
+  const chunkSize = text.length > 1000 ? 3 : 2;
+  let i = 0;
+  el.textContent = "";
+
+  return new Promise(resolve => {
+    function tick() {
+      if (i >= text.length) { resolve(); return; }
+      const end = Math.min(i + chunkSize, text.length);
+      el.textContent = text.substring(0, end);
+      document.getElementById("outputCount").textContent = end + " 字";
+      i = end;
+      setTimeout(tick, speed);
+    }
+    tick();
+  });
 }
 </script>
 </body>
