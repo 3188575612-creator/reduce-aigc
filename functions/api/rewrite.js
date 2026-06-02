@@ -37,7 +37,7 @@ export async function onRequest(context) {
     });
   }
 
-  const { apiKey, model = "deepseek-v4-pro", messages, temperature = 0.9, max_tokens = 4096 } = body;
+  const { apiKey, model = "deepseek-v4-pro", messages, temperature = 0.9, max_tokens = 4096, stream } = body;
 
   if (!apiKey || !messages) {
     return new Response(JSON.stringify({ error: "缺少 apiKey 或 messages" }), {
@@ -68,6 +68,7 @@ export async function onRequest(context) {
       messages,
       temperature: cappedTemp,
       max_tokens: cappedTokens,
+      stream: !!stream,
     };
 
     const resp = await fetch(ep.url, {
@@ -76,10 +77,18 @@ export async function onRequest(context) {
       body: JSON.stringify(reqBody),
     });
 
+    // Streaming: pipe upstream SSE directly
+    if (stream && resp.ok && resp.body) {
+      return new Response(resp.body, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", ...corsHeaders() },
+      });
+    }
+
+    // Non-streaming: read full response
     const ct = resp.headers.get("content-type") || "";
     const raw = await resp.text();
 
-    // If upstream returned non-JSON, wrap it
     if (!ct.includes("application/json")) {
       return new Response(JSON.stringify({
         error: { message: raw.substring(0, 500) || `HTTP ${resp.status}` }
