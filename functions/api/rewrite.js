@@ -71,27 +71,31 @@ export async function onRequest(context) {
       stream: !!stream,
     };
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
-    const resp = await fetch(ep.url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(reqBody),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    // Streaming: pipe upstream SSE directly
-    if (stream && resp.ok && resp.body) {
-      return new Response(resp.body, {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream", ...corsHeaders() },
+    let resp, raw, ct;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
+      resp = await fetch(ep.url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(reqBody),
+        signal: controller.signal,
       });
-    }
+      clearTimeout(timeout);
 
-    // Non-streaming: read full response
-    const ct = resp.headers.get("content-type") || "";
-    const raw = await resp.text();
+      // Streaming: pipe upstream SSE directly
+      if (stream && resp.ok && resp.body) {
+        return new Response(resp.body, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream", ...corsHeaders() },
+        });
+      }
+
+      ct = resp.headers.get("content-type") || "";
+      raw = await resp.text();
+      if (raw) break;
+      if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
+    }
 
     if (!raw) {
       return new Response(JSON.stringify({ error: { message: `上游返回空响应 (HTTP ${resp.status})` } }), {
