@@ -71,13 +71,15 @@ export async function onRequest(context) {
       stream: !!stream,
     };
 
+    const fetchHeaders = Object.assign({ "User-Agent": "reduce-aigc/1.0" }, headers);
+
     let resp, raw, ct;
     for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 25000);
       resp = await fetch(ep.url, {
         method: "POST",
-        headers,
+        headers: fetchHeaders,
         body: JSON.stringify(reqBody),
         signal: controller.signal,
       });
@@ -119,7 +121,8 @@ export async function onRequest(context) {
       headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: "API 请求失败: " + err.message }), {
+    const msg = err.name === "AbortError" ? "请求超时(25s)" : err.message;
+    return new Response(JSON.stringify({ error: "API 请求失败: " + msg }), {
       status: 502,
       headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
