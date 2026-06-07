@@ -98,7 +98,8 @@ export async function onRequest(context) {
     }
 
     if (!raw) {
-      return new Response(JSON.stringify({ error: { message: `上游返回空响应 (HTTP ${resp.status})` } }), {
+      const h = {}; resp.headers.forEach((v, k) => { h[k] = v; });
+      return new Response(JSON.stringify({ error: { message: `上游空响应 HTTP${resp.status}` } }), {
         status: 502,
         headers: { "Content-Type": "application/json", ...corsHeaders() },
       });
