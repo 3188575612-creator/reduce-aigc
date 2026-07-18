@@ -125,8 +125,17 @@
   .custom-model-form { display:flex; gap:6px; align-items:center; }
   .custom-model-item { display:flex; align-items:center; justify-content:space-between; padding:6px 8px; margin-bottom:4px; border:1px solid var(--border); border-radius:6px; font-size:12px; }
   .custom-model-item span { color:var(--text-secondary); margin-right:6px; }
+  .custom-model-item .cm-edit { color:var(--accent); cursor:pointer; font-size:14px; margin-right:2px; }
+  .custom-model-item .cm-edit:hover { opacity:0.7; }
   .custom-model-item .cm-del { color:var(--danger); cursor:pointer; font-size:14px; }
   .custom-model-item .cm-del:hover { opacity:0.7; }
+
+  /* ---- Settings polish ---- */
+  .modal-body { display:flex; flex-direction:column; gap:2px; }
+  .section-title { font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px; margin-top:4px; }
+  .add-key-form { display:flex; gap:6px; margin-bottom:4px; }
+  .divider { height:1px; background:var(--border); margin:12px 0; }
+  .key-list { max-height:180px; overflow-y:auto; }
 
   /* ---- Model select ---- */
   .model-select {
@@ -371,11 +380,12 @@
       <!-- Custom Models -->
       <div class="section-title">🔧 自定义模型</div>
       <div class="custom-model-form">
-        <input class="input" id="cmName" placeholder="名称" style="flex:1;">
-        <input class="input" id="cmUrl" placeholder="API地址 (https://...)" style="flex:2;">
-        <input class="input" id="cmId" placeholder="模型ID" style="flex:1;">
-        <button class="btn btn-primary btn-sm" onclick="addCustomModel()">+</button>
+        <input class="input" id="cmName" placeholder="名称" style="flex:1;min-width:60px;">
+        <input class="input" id="cmUrl" placeholder="API完整地址" style="flex:2;min-width:120px;">
+        <input class="input" id="cmId" placeholder="模型ID" style="flex:1;min-width:80px;">
+        <button class="btn btn-primary btn-sm" id="cmAddBtn" onclick="addCustomModel()">+</button>
       </div>
+      <div style="font-size:10px;color:var(--text-secondary);margin-top:2px;">例: https://api.deepseek.com/v1/chat/completions</div>
       <div id="customModelList" style="margin-top:8px;"></div>
       </div><!-- /stab-keys -->
 
@@ -566,28 +576,37 @@ function closeSettings(e) {
   updateHeaderInfo();
 }
 
+let cmEditId = null;
+
 function renderCustomModels() {
   const s = loadSettings();
   const list = document.getElementById("customModelList");
   const models = s.customModels || [];
   if (!models.length) {
-    list.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);">暂无自定义模型</div>';
+    list.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);padding:4px 0;">暂无自定义模型</div>';
   } else {
     list.innerHTML = models.map(m => `
       <div class="custom-model-item">
-        <span><strong>${escapeHtml(m.name)}</strong> · ${escapeHtml(m.url.substring(0,40))} · ${escapeHtml(m.modelId)}</span>
-        <span class="cm-del" onclick="delCustomModel('${m.id}')">✕</span>
+        <span style="flex:1;min-width:0;">
+          <strong>${escapeHtml(m.name)}</strong>
+          <span style="color:#9ca3af;font-size:10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(m.url)} · ${escapeHtml(m.modelId)}</span>
+        </span>
+        <span style="display:flex;gap:4px;flex-shrink:0;">
+          <span class="cm-edit" onclick="editCustomModel('${m.id}')">✎</span>
+          <span class="cm-del" onclick="delCustomModel('${m.id}')">✕</span>
+        </span>
       </div>
     `).join("");
   }
-  // Refresh model select
   const sel = document.getElementById("modelSelect");
-  const presets = ['<option value="deepseek-v4-pro">DeepSeek V4 Pro — 高级模型（推荐）</option>',
-    '<option value="deepseek-v4-flash">DeepSeek V4 Flash — 快速模型</option>',
-    '<option value="glm-4.7">GLM-4.7 — 智谱AI</option>',
-    '<option value="qwen-turbo">Qwen-Turbo — 通义千问</option>',
-    '<option value="qwen-plus">Qwen-Plus — 通义千问增强</option>',
-    '<option value="xiaomimimo">Xiaomi MiMo — 小米大模型</option>'];
+  const presets = [
+    '<option value="deepseek-v4-pro">DeepSeek V4 Pro</option>',
+    '<option value="deepseek-v4-flash">DeepSeek V4 Flash</option>',
+    '<option value="glm-4.7">GLM-4.7 · 智谱AI</option>',
+    '<option value="qwen-turbo">Qwen-Turbo · 通义千问</option>',
+    '<option value="qwen-plus">Qwen-Plus · 通义千问增强</option>',
+    '<option value="xiaomimimo">MiMo · 小米大模型</option>'
+  ];
   const customs = models.map(m => `<option value="${m.id}">🔧 ${escapeHtml(m.name)}</option>`);
   sel.innerHTML = presets.join("") + customs.join("");
   sel.value = s.model;
@@ -601,16 +620,43 @@ function addCustomModel() {
 
   const s = loadSettings();
   if (!s.customModels) s.customModels = [];
-  s.customModels.push({ id: "cm_" + Date.now(), name, url, modelId });
+
+  if (cmEditId) {
+    const idx = s.customModels.findIndex(m => m.id === cmEditId);
+    if (idx >= 0) s.customModels[idx] = { id: cmEditId, name, url, modelId };
+    cmEditId = null;
+    document.getElementById("cmAddBtn").textContent = "+";
+  } else {
+    s.customModels.push({ id: "cm_" + Date.now(), name, url, modelId });
+  }
+
   saveSettings(s);
   document.getElementById("cmName").value = "";
   document.getElementById("cmUrl").value = "";
   document.getElementById("cmId").value = "";
   renderCustomModels();
-  toast("自定义模型已添加");
+  toast(cmEditId ? "已更新" : "已添加");
+}
+
+function editCustomModel(id) {
+  const s = loadSettings();
+  const m = (s.customModels || []).find(m => m.id === id);
+  if (!m) return;
+  document.getElementById("cmName").value = m.name;
+  document.getElementById("cmUrl").value = m.url;
+  document.getElementById("cmId").value = m.modelId;
+  cmEditId = id;
+  document.getElementById("cmAddBtn").textContent = "✓";
 }
 
 function delCustomModel(id) {
+  if (cmEditId === id) {
+    cmEditId = null;
+    document.getElementById("cmName").value = "";
+    document.getElementById("cmUrl").value = "";
+    document.getElementById("cmId").value = "";
+    document.getElementById("cmAddBtn").textContent = "+";
+  }
   const s = loadSettings();
   s.customModels = (s.customModels || []).filter(m => m.id !== id);
   if (s.model === id) s.model = "deepseek-v4-pro";
