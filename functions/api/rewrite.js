@@ -37,7 +37,7 @@ export async function onRequest(context) {
     });
   }
 
-  const { apiKey, model = "deepseek-v4-pro", messages, temperature = 0.9, max_tokens = 4096, stream } = body;
+  const { apiKey, model = "deepseek-v4-pro", baseUrl, authType, messages, temperature = 0.9, max_tokens = 4096, stream } = body;
 
   if (!apiKey || !messages) {
     return new Response(JSON.stringify({ error: "缺少 apiKey 或 messages" }), {
@@ -46,8 +46,10 @@ export async function onRequest(context) {
     });
   }
 
-  const ep = ENDPOINTS[model] || ENDPOINTS["deepseek-v4-pro"];
-  const cappedTokens = (model === "glm-4.7" || model === "qwen-turbo" || model === "qwen-plus")
+  const ep = baseUrl
+    ? { url: baseUrl, name: model, auth: authType || "bearer" }
+    : (ENDPOINTS[model] || ENDPOINTS["deepseek-v4-pro"]);
+  const cappedTokens = !baseUrl && (model === "glm-4.7" || model === "qwen-turbo" || model === "qwen-plus")
     ? Math.min(max_tokens, 4096)
     : max_tokens;
 
@@ -59,7 +61,7 @@ export async function onRequest(context) {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
-    const cappedTemp = (model === "glm-4.7")
+    const cappedTemp = !baseUrl && (model === "glm-4.7")
       ? Math.min(temperature, 1.0)
       : temperature;
 
