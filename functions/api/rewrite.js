@@ -46,8 +46,12 @@ export async function onRequest(context) {
     });
   }
 
+  let resolvedUrl = baseUrl;
+  if (resolvedUrl && !resolvedUrl.includes("/v1/chat/completions") && !resolvedUrl.includes("/chat/completions")) {
+    resolvedUrl = resolvedUrl.replace(/\/$/, "") + "/v1/chat/completions";
+  }
   const ep = baseUrl
-    ? { url: baseUrl, name: model, auth: authType || "bearer" }
+    ? { url: resolvedUrl, name: model, auth: authType || "bearer" }
     : (ENDPOINTS[model] || ENDPOINTS["deepseek-v4-pro"]);
   const cappedTokens = !baseUrl && (model === "glm-4.7" || model === "qwen-turbo" || model === "qwen-plus")
     ? Math.min(max_tokens, 4096)
