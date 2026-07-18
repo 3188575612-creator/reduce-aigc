@@ -2,6 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AIGC降重工具 — 降低论文AI检测率</title>
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
@@ -117,6 +120,13 @@
   .input:focus { border-color:var(--accent); }
   .input-key-name { width:110px; flex-shrink:0; }
   .input-key { flex:1; }
+
+  /* ---- Custom model form ---- */
+  .custom-model-form { display:flex; gap:6px; align-items:center; }
+  .custom-model-item { display:flex; align-items:center; justify-content:space-between; padding:6px 8px; margin-bottom:4px; border:1px solid var(--border); border-radius:6px; font-size:12px; }
+  .custom-model-item span { color:var(--text-secondary); margin-right:6px; }
+  .custom-model-item .cm-del { color:var(--danger); cursor:pointer; font-size:14px; }
+  .custom-model-item .cm-del:hover { opacity:0.7; }
 
   /* ---- Model select ---- */
   .model-select {
@@ -248,6 +258,7 @@
   <div class="header-right">
     <span class="header-info" id="headerInfo"></span>
     <button class="btn-settings" title="改写历史" onclick="openHistory()">📜</button>
+    <button class="btn-settings" title="公告" onclick="openAnnounce()">📢</button>
     <button class="btn-settings" title="AI检测" onclick="openDetect()">🔍</button>
     <button class="btn-settings" title="设置" onclick="openSettings()">⚙</button>
   </div>
@@ -352,8 +363,20 @@
         <option value="xiaomimimo">Xiaomi MiMo — 小米大模型</option>
       </select>
       <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
-        R1 改写效果可能更好，但延迟较高（10-30 秒），且上下文限制较短。
+        自定义模型需自行获取对应服务的 Key
       </div>
+
+      <div class="divider"></div>
+
+      <!-- Custom Models -->
+      <div class="section-title">🔧 自定义模型</div>
+      <div class="custom-model-form">
+        <input class="input" id="cmName" placeholder="名称" style="flex:1;">
+        <input class="input" id="cmUrl" placeholder="API地址 (https://...)" style="flex:2;">
+        <input class="input" id="cmId" placeholder="模型ID" style="flex:1;">
+        <button class="btn btn-primary btn-sm" onclick="addCustomModel()">+</button>
+      </div>
+      <div id="customModelList" style="margin-top:8px;"></div>
       </div><!-- /stab-keys -->
 
     </div>
@@ -392,6 +415,19 @@
   </div>
 </div>
 
+<!-- Announce Panel -->
+<div class="history-overlay" id="announceOverlay" onclick="closeAnnounce(event)">
+  <div class="history-panel" onclick="event.stopPropagation()">
+    <div class="history-panel-header">
+      <span class="history-panel-title">📢 公告</span>
+      <button class="modal-close" onclick="closeAnnounce()">✕</button>
+    </div>
+    <div class="history-panel-body" id="announceBody">
+      <div style="text-align:center;padding:30px;color:var(--text-secondary);">⏳ 加载中…</div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -409,8 +445,14 @@ function defaultSettings() {
   return {
     activeKeyId: null,
     keys: [],
-    model: "deepseek-v4-pro"
+    model: "deepseek-v4-pro",
+    customModels: []
   };
+}
+
+function getCustomModel(modelId) {
+  const s = loadSettings();
+  return (s.customModels || []).find(m => m.id === modelId);
 }
 
 function saveSettings(s) {
@@ -515,12 +557,65 @@ function updateHeaderInfo() {
 function openSettings() {
   document.getElementById("modalOverlay").classList.add("open");
   renderKeyList();
+  renderCustomModels();
 }
 
 function closeSettings(e) {
   if (e && e.target !== document.getElementById("modalOverlay")) return;
   document.getElementById("modalOverlay").classList.remove("open");
   updateHeaderInfo();
+}
+
+function renderCustomModels() {
+  const s = loadSettings();
+  const list = document.getElementById("customModelList");
+  const models = s.customModels || [];
+  if (!models.length) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);">暂无自定义模型</div>';
+  } else {
+    list.innerHTML = models.map(m => `
+      <div class="custom-model-item">
+        <span><strong>${escapeHtml(m.name)}</strong> · ${escapeHtml(m.url.substring(0,40))} · ${escapeHtml(m.modelId)}</span>
+        <span class="cm-del" onclick="delCustomModel('${m.id}')">✕</span>
+      </div>
+    `).join("");
+  }
+  // Refresh model select
+  const sel = document.getElementById("modelSelect");
+  const presets = ['<option value="deepseek-v4-pro">DeepSeek V4 Pro — 高级模型（推荐）</option>',
+    '<option value="deepseek-v4-flash">DeepSeek V4 Flash — 快速模型</option>',
+    '<option value="glm-4.7">GLM-4.7 — 智谱AI</option>',
+    '<option value="qwen-turbo">Qwen-Turbo — 通义千问</option>',
+    '<option value="qwen-plus">Qwen-Plus — 通义千问增强</option>',
+    '<option value="xiaomimimo">Xiaomi MiMo — 小米大模型</option>'];
+  const customs = models.map(m => `<option value="${m.id}">🔧 ${escapeHtml(m.name)}</option>`);
+  sel.innerHTML = presets.join("") + customs.join("");
+  sel.value = s.model;
+}
+
+function addCustomModel() {
+  const name = document.getElementById("cmName").value.trim();
+  const url = document.getElementById("cmUrl").value.trim();
+  const modelId = document.getElementById("cmId").value.trim();
+  if (!name || !url || !modelId) return toast("请填写完整");
+
+  const s = loadSettings();
+  if (!s.customModels) s.customModels = [];
+  s.customModels.push({ id: "cm_" + Date.now(), name, url, modelId });
+  saveSettings(s);
+  document.getElementById("cmName").value = "";
+  document.getElementById("cmUrl").value = "";
+  document.getElementById("cmId").value = "";
+  renderCustomModels();
+  toast("自定义模型已添加");
+}
+
+function delCustomModel(id) {
+  const s = loadSettings();
+  s.customModels = (s.customModels || []).filter(m => m.id !== id);
+  if (s.model === id) s.model = "deepseek-v4-pro";
+  saveSettings(s);
+  renderCustomModels();
 }
 
 function renderKeyList() {
@@ -1216,22 +1311,31 @@ async function doRewrite(apiKey, s, text, attempt) {
   for (let retry = 0; retry <= MAX_RETRIES; retry++) {
     try {
       const strategy = STRATEGIES[currentStrategy];
+      const cm = getCustomModel(s.model);
+      const reqBody = {
+        apiKey,
+        model: cm ? cm.modelId : s.model,
+        temperature: INTENSITY[currentIntensity].temperature + (retry > 0 ? retry * 0.1 : 0),
+        max_tokens: Math.max(4096, Math.ceil(text.length * INTENSITY[currentIntensity].maxMultiplier)),
+        messages: [
+          { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
+          { role: "user", content: strategy.prompt + "\n\n" + text }
+        ]
+      };
+      if (cm) { reqBody.baseUrl = cm.url; reqBody.authType = "bearer"; }
+
       const resp = await fetch("/api/rewrite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey,
-          model: s.model,
-          temperature: INTENSITY[currentIntensity].temperature + (retry > 0 ? retry * 0.1 : 0),
-          max_tokens: Math.max(4096, Math.ceil(text.length * INTENSITY[currentIntensity].maxMultiplier)),
-          messages: [
-            { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
-            { role: "user", content: strategy.prompt + "\n\n" + text }
-          ]
-        })
+        body: JSON.stringify(reqBody)
       });
 
-      const data = await resp.json();
+      const rawText = await resp.text();
+      if (!rawText) throw new Error("服务器返回空响应");
+      let data;
+      try { data = JSON.parse(rawText); } catch {
+        throw new Error("响应格式异常: " + rawText.substring(0, 100));
+      }
       if (!resp.ok || data.error) throw new Error(data.error?.message || data.error || "请求失败");
 
       let result = data.choices?.[0]?.message?.content || "";
@@ -1270,6 +1374,41 @@ async function typewriterEffect(el, text) {
     }
     tick();
   });
+}
+
+// ==================== Announcement ====================
+const ANN_URL = "https://raw.githubusercontent.com/3188575612-creator/reduce-aigc/main/announcement.json";
+
+function openAnnounce() {
+  document.getElementById("announceOverlay").classList.add("show");
+  loadAnnounce();
+}
+
+function closeAnnounce(e) {
+  if (e && e.target !== document.getElementById("announceOverlay")) return;
+  document.getElementById("announceOverlay").classList.remove("show");
+}
+
+async function loadAnnounce() {
+  const body = document.getElementById("announceBody");
+  try {
+    const resp = await fetch(ANN_URL + "?t=" + Date.now());
+    if (!resp.ok) throw new Error("加载失败");
+    const content = await resp.json();
+    renderAnnounce(content);
+  } catch {
+    body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text-secondary);">
+      <div style="font-size:40px;margin-bottom:12px;">📢</div>
+      <div>暂无公告</div>
+    </div>`;
+  }
+}
+
+function renderAnnounce(content) {
+  document.getElementById("announceBody").innerHTML = `
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">${content.time || ""}</div>
+    <div style="font-size:14px;line-height:1.8;white-space:pre-wrap;">${escapeHtml(content.text || "")}</div>
+  `;
 }
 </script>
 </body>
