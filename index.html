@@ -375,15 +375,16 @@
   /* ============================================================
      质量自检
      ============================================================ */
-  .quality-hint { display: none; width: 100%; font-size: 12px; line-height: 1.7; }
-  .quality-hint.show { display: block; }
+  .quality-hint { display: none; font-size: 12px; line-height: 1.7; }
+  .quality-hint.show { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  /* 只提示"需要注意"的情况：宽度贴合内容、居中排布，不做通栏色块 */
   .qh-item {
-    padding: 9px 12px; margin-bottom: 6px;
+    flex: 0 1 auto; max-width: 100%; text-align: left;
+    padding: 7px 13px;
     border-radius: var(--r-sm);
-    border-left: 3px solid currentColor;
+    border-left: 2px solid currentColor;
   }
   .qh-warn { background: var(--risk-mid-bg); color: var(--risk-mid-fg); }
-  .qh-ok { background: var(--risk-low-bg); color: var(--risk-low-fg); }
   .qh-bad { background: var(--risk-high-bg); color: var(--risk-high-fg); }
   .qh-item code {
     background: color-mix(in srgb, currentColor 12%, transparent);
@@ -1705,9 +1706,11 @@ function setResultMeta(text) {
   if (el) el.textContent = text || "改写完成后这里会显示本次所用模型与强度";
 }
 
-function describeResult() {
+function describeResult(quality) {
   const m = buildResultMeta();
-  return `${m.modelLabel} · ${m.strategyName} · ${m.intensityName}强度 · 原文 ${originalText.length} → 结果 ${rewrittenText.length} 字`;
+  const parts = [m.modelLabel, m.strategyName, `${m.intensityName}强度`, `原文 ${originalText.length} → 结果 ${rewrittenText.length} 字`];
+  if (quality && quality.sim !== null && quality.sim !== undefined) parts.push(`相似度 ${quality.sim}%`);
+  return parts.join(" · ");
 }
 
 function setInputText(text) {
@@ -1776,9 +1779,12 @@ function textSimilarity(a, b) {
   return Math.round((2 * lcs / (ta.length + tb.length)) * 100);
 }
 
+// 自检结果：正常态不进横幅（相似度并入右栏元信息行），只有真有问题才提示。
+// 之前把"一切正常"也铺成整宽绿条，视觉重量压过主按钮，反而像出了事。
 function reportQuality(orig, result) {
   const el = document.getElementById("qualityHint");
   const items = [];
+  const sim = textSimilarity(orig, result);
 
   const tokens = extractTechnicalTokens(orig);
   const missing = tokens.filter((t) => !result.includes(t));
@@ -1786,24 +1792,21 @@ function reportQuality(orig, result) {
     const shown = missing.slice(0, 8).map((t) => `<code>${escapeHtml(t)}</code>`).join(" ");
     items.push({
       cls: missing.length > tokens.length * 0.2 ? "qh-bad" : "qh-warn",
-      html: `⚠ 有 ${missing.length}/${tokens.length} 处技术信息没出现在结果里：${shown}${missing.length > 8 ? " …" : ""}<br>改写时容易丢版本号与表名，请对照原文核对。`,
+      html: `有 ${missing.length}/${tokens.length} 处技术信息没出现在结果里：${shown}${missing.length > 8 ? " …" : ""}<br>改写容易丢版本号与表名，请对照原文核对。`,
     });
   }
 
-  const sim = textSimilarity(orig, result);
-  if (sim !== null) {
-    if (sim >= 85) {
-      items.push({ cls: "qh-warn", html: `⚠ 与原文相似度约 ${sim}%，改写幅度偏小。可换「降AI·风格」策略、选重度，或点「✨ 再降一次」迭代处理。` });
-    } else if (sim <= 40) {
-      items.push({ cls: "qh-warn", html: `⚠ 与原文相似度约 ${sim}%，改动很大，注意核对是否偏离原意或丢了细节。` });
-    } else {
-      items.push({ cls: "qh-ok", html: `✓ 与原文相似度约 ${sim}%，属正常改写幅度。` });
-    }
+  if (sim !== null && sim >= 85) {
+    items.push({ cls: "qh-warn", html: `与原文相似度约 ${sim}%，改写幅度偏小。可换「降AI·风格」策略、选重度，或点「✨ 再降一次」迭代处理。` });
+  } else if (sim !== null && sim <= 40) {
+    items.push({ cls: "qh-warn", html: `与原文相似度约 ${sim}%，改动很大，注意核对是否偏离原意或丢了细节。` });
   }
 
-  if (!items.length) return hideQualityHint();
+  if (!items.length) { hideQualityHint(); return { sim, missing: missing.length, level: "ok" }; }
+
   el.innerHTML = items.map((i) => `<div class="qh-item ${i.cls}">${i.html}</div>`).join("");
   el.classList.add("show");
+  return { sim, missing: missing.length, level: items.some((i) => i.cls === "qh-bad") ? "bad" : "warn" };
 }
 
 // ==================== View switching ====================
@@ -2282,8 +2285,7 @@ async function singleRewrite(apiKey) {
     showViewTabs(true);
     switchView("result");
     saveHistory();
-    reportQuality(originalText, rewrittenText);
-    setResultMeta(describeResult());
+    setResultMeta(describeResult(reportQuality(originalText, rewrittenText)));
     toast("✅ 改写完成");
   } else if (result.stopped) {
     outputEl.innerHTML = '<span style="color:var(--warning)">⏹ 已停止</span>';
@@ -2388,8 +2390,7 @@ function finishBatch(results, total, progressWrap, progressText, progressFill, o
   showViewTabs(true);
   switchView("result");
   saveHistory();
-  reportQuality(originalText, rewrittenText);
-  setResultMeta(describeResult());
+  setResultMeta(describeResult(reportQuality(originalText, rewrittenText)));
   if (warnText) toast(warnText);
   setTimeout(() => { progressWrap.style.display = "none"; }, 1800);
 }

@@ -375,6 +375,31 @@ try {
       return JSON.stringify({ finish: r.finishReason, tokens: r.completionTokens, reasoningLen: r.reasoning.length, text: r.text });
     })()`,
       (v) => { const o = JSON.parse(v); return o.finish === "length" && o.tokens === 512 && o.reasoningLen === 2 && o.text === "甲"; }],
+    ["一切正常时不出横幅，相似度并入右栏元信息行", `(() => {
+      const orig = "本系统采用前后端分离架构，后端基于 Spring Boot 2.6.13 实现。";
+      const out = "该平台采用前后端分离的实现方式，服务端以 Spring Boot 2.6.13 为核心。";
+      const q = reportQuality(orig, out);
+      originalText = orig; rewrittenText = out;
+      setResultMeta(describeResult(q));
+      return JSON.stringify({
+        level: q.level, sim: q.sim,
+        hintShown: document.getElementById("qualityHint").classList.contains("show"),
+        meta: document.getElementById("resultMeta").textContent
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.level === "ok" && !o.hintShown && /相似度 \d+%/.test(o.meta); }],
+    ["需要注意时才是贴合内容的小块（不通栏铺色）", `(() => {
+      reportQuality("使用 Spring Boot 2.6.13 与表 exam_grade", "本系统采用后端框架，数据库中有成绩表");
+      const el = document.getElementById("qualityHint");
+      const box = el.querySelector(".qh-item").getBoundingClientRect();
+      const main = document.querySelector(".action-bar").getBoundingClientRect();
+      return JSON.stringify({
+        shown: el.classList.contains("show"),
+        layout: getComputedStyle(el).display,
+        narrower: box.width < main.width - 40
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.shown && o.layout === "flex" && o.narrower; }],
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',
