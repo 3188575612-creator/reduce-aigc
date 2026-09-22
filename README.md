@@ -17,6 +17,7 @@
 | `functions/api/rewrite.js` | Cloudflare Pages Functions 入口（`/api/rewrite`） |
 | `functions/api/health.js` | 健康检查（`/api/health`） |
 | `_routes.json` | Pages 侧路由面：只让 `/api/*` 触发 Functions，其余走静态资源 |
+| `_redirects` | 挡住不该公开的开发文件（见「发布面」） |
 | `worker.js` | Cloudflare Workers 入口 + 静态资源安全响应头 |
 | `server.js` | 本地开发服务器，复用同一代理核心 |
 
@@ -70,10 +71,25 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 |---|---|
 | `npm test` | 代理层回归自测：本地 mock 上游，32 项断言（鉴权、超时、重试、流式、限流、CORS、参数夹取、SSE） |
 | `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路（含 model 透传、静态路由、CSP、404） |
-| `npm run test:ui` | 无头 Edge + CDP：在真实页面上下文断言分段、max_tokens、历史全文、Key 存储等 21 项，并抓运行时异常 |
-| `npm run test:all` | 依次跑以上三项 |
+| `npm run test:ui` | 无头 Edge + CDP：在真实页面上下文断言分段、max_tokens、历史全文、Key 存储等 24 项，并抓运行时异常 |
+| `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
+| `npm run test:all` | 依次跑前三项（不含线上探测） |
 
-三个测试都不需要真实 API Key。
+前三项都不需要真实 API Key。
+
+## 发布面（重要）
+
+- **Pages 路径**：发布面 = 仓库里**所有被跟踪的文件**（Build output directory 是仓库根）。
+  `.assetsignore` 在 Pages 上**不生效**，它只对 Workers 静态资源有效。
+  因此 `server.js`、`scripts/`、`worker.js` 等开发文件默认会一起被发布 —— 用 `_redirects` 挡（见下）。
+- **Workers 路径**：发布面 = `assets.directory` 减去 `.assetsignore` 里列出的文件。
+
+`_redirects` 只支持 301/302/303/307/308（**不支持 404**），所以用 302 把开发文件指回首页，
+内容不再可取。改后务必跑 `npm run probe:live` 确认线上真的挡住了。
+
+**彻底的做法**（需要动一次 Cloudflare 控制台）：新建 `public/` 目录只放 `index.html` 与
+`announcement.json`，把 Build output directory 从 `/` 改成 `public`，再把 `server.js` 的静态路由
+指到 `public/`。这样发布面就只剩两个文件，不再依赖 `_redirects` 的规则维护。
 
 ## 使用
 
@@ -121,6 +137,13 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 - `raw.githubusercontent.com` 在本机不可达，故公告改为**同源优先**（`/announcement.json`）。
 
 ## 变更记录
+
+### 2.1.1
+- **修复线上暴露面**：实测发现 `https://reduce-aigc.pages.dev/server.js`、`/scripts/*`、`/worker.js`、
+  `/.gitignore` 等开发文件都能取到真实内容（Pages 的发布面是整个仓库，`.assetsignore` 在 Pages 上不生效）。
+  新增 `_redirects` 把这批路径 302 挡回首页，并补 `npm run probe:live` 做线上回归
+- 更正 README 里关于 `.assetsignore` 与发布面的表述，给出「把发布目录收窄到 `public/`」的彻底方案
+- 新增 3 个开发文件在发布面上被挡住的断言，线上探测脚本纳入 npm scripts
 
 ### 2.1.0
 - 按官方文档核对四个上游的端点、模型 ID、鉴权头与参数上限

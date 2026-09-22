@@ -1,0 +1,13 @@
+# Pages 的发布面 = 仓库中所有被跟踪的文件（Build output directory 是仓库根）。
+# 这些是开发/部署用文件，不该作为静态资源公开。_redirects 在 Pages 上只支持
+# 301/302/303/307/308，不支持 404，故用 302 把内容指走（内容不再可取）。
+# 注意：_redirects 不作用于 Pages Functions 的请求，所以不影响 /api/*。
+
+/server.js / 302
+/worker.js / 302
+/wrangler.jsonc / 302
+/package.json / 302
+/README.md / 302
+/.gitignore / 302
+/.assetsignore / 302
+/scripts/* / 302

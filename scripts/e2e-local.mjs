@@ -105,6 +105,23 @@ if (!ready) {
   }
   check("Pages 路由面限定在 /api/*（_routes.json）", routesOk, routesDetail);
 
+  let redirectsDetail = "";
+  let redirectsOk = false;
+  try {
+    const txt = fs.readFileSync(path.join(ROOT, "_redirects"), "utf8");
+    const lines = txt.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+    const mustCover = [
+      "/server.js", "/worker.js", "/wrangler.jsonc",
+      "/package.json", "/README.md", "/.gitignore", "/.assetsignore", "/scripts/*",
+    ];
+    const miss = mustCover.filter((p) => !lines.some((l) => l.startsWith(p + " ") && / 3\d\d$/.test(l)));
+    redirectsOk = miss.length === 0;
+    redirectsDetail = miss.length ? "缺少或状态码非 3xx 的规则: " + miss.join(", ") : `共 ${lines.length} 条规则`;
+  } catch (err) {
+    redirectsDetail = err.message;
+  }
+  check("_redirects 挡住全部开发文件（线上发布面收口）", redirectsOk, redirectsDetail);
+
   const nf = await fetch(base + "/not-exist");
   check("未知路径 -> 404", nf.status === 404, `status=${nf.status}`);
 

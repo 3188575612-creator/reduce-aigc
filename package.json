@@ -8,6 +8,7 @@
     "test": "node scripts/selftest.mjs",
     "test:e2e": "node scripts/e2e-local.mjs",
     "test:ui": "node scripts/headless-check.mjs",
+    "probe:live": "node scripts/probe-live.mjs",
     "test:all": "npm test && npm run test:e2e && npm run test:ui",
     "deploy": "wrangler deploy"
   }
