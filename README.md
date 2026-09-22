@@ -16,11 +16,13 @@
 | `functions/_lib/rewrite-handler.mjs` | **唯一**的代理核心：模型路由、鉴权、超时、重试、流式、限流、CORS |
 | `functions/api/rewrite.js` | Cloudflare Pages Functions 入口（`/api/rewrite`） |
 | `functions/api/health.js` | 健康检查（`/api/health`） |
+| `_routes.json` | Pages 侧路由面：只让 `/api/*` 触发 Functions，其余走静态资源 |
 | `worker.js` | Cloudflare Workers 入口 + 静态资源安全响应头 |
 | `server.js` | 本地开发服务器，复用同一代理核心 |
 
-> `functions/_lib/` 以 `_` 开头，Pages 不会把它当成路由。
 > 改代理行为只需改 `functions/_lib/rewrite-handler.mjs`，三个入口都只是薄封装。
+> Pages 侧的路由面由仓库根的 `_routes.json` 限定在 `/api/*`（官方机制），因此 `functions/_lib/`
+> 只是被 import 的源码模块，不会成为可访问路由，同时也能省掉静态请求的 Functions 调用计费。
 
 ## 部署
 

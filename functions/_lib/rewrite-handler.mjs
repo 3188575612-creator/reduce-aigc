@@ -1,6 +1,6 @@
 // 共享代理核心：Pages Functions / Workers / 本地 Node 三处唯一实现。
 // 运行环境需提供 Web 标准 API：fetch、Request、Response、URL、AbortController。
-// 放在 functions/_lib/ 下：Pages 约定下划线开头的文件不参与路由。
+// 放在 functions/_lib/ 下作为源码模块；Pages 的路由面由仓库根的 _routes.json 限定在 /api/*。
 
 export const VERSION = "2.1.0";
 

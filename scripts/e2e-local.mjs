@@ -1,6 +1,7 @@
 // 端到端验证：mock 上游 + 真实启动 server.js，走 HTTP 打全链路。
 // 运行：npm run test:e2e
 import http from "node:http";
+import fs from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,6 +93,17 @@ if (!ready) {
 
   const fav = await fetch(base + "/favicon.ico");
   check("GET /favicon.ico -> 204", fav.status === 204, `status=${fav.status}`);
+
+  let routesOk = false;
+  let routesDetail = "";
+  try {
+    const routes = JSON.parse(fs.readFileSync(path.join(ROOT, "_routes.json"), "utf8"));
+    routesOk = routes.version === 1 && Array.isArray(routes.include) && routes.include.includes("/api/*");
+    routesDetail = JSON.stringify(routes);
+  } catch (err) {
+    routesDetail = err.message;
+  }
+  check("Pages 路由面限定在 /api/*（_routes.json）", routesOk, routesDetail);
 
   const nf = await fetch(base + "/not-exist");
   check("未知路径 -> 404", nf.status === 404, `status=${nf.status}`);
