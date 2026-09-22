@@ -38,7 +38,9 @@ server.stdout.on("data", (d) => { serverLog += d; });
 server.stderr.on("data", (d) => { serverLog += d; });
 
 const port = 9500 + Math.floor(Math.random() * 300);
-const profile = path.join(os.tmpdir(), `aigc-cdp-${port}`);
+// profile 目录名带上唯一后缀：端口随机数有可能撞上上次遗留的目录，
+// 那样会把旧的 localStorage（模型、草稿、提示条标记）带进来，让"全新环境"类的断言随机失败
+const profile = path.join(os.tmpdir(), `aigc-cdp-${port}-${Date.now().toString(36)}`);
 const child = spawn(browser, [
   "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
   "--hide-scrollbars", "--window-size=1440,900",
@@ -133,7 +135,17 @@ try {
     if ((r.value || 0) > 50) { loaded = true; break; }
     await sleep(400);
   }
-  record("页面加载完成", loaded, "页面文本为空");
+
+  // 明确清空一次存储再重载，保证断言的是"首次访问"状态，而不是复用上一个 profile 的残留
+  await evalJs('try { localStorage.clear(); sessionStorage.clear(); } catch (e) {} "cleared"');
+  await send("Page.reload", { ignoreCache: true });
+  let reloaded = false;
+  for (let i = 0; i < 40; i++) {
+    const r = await evalJs('document.body ? document.body.innerText.length : 0');
+    if ((r.value || 0) > 50) { reloaded = true; break; }
+    await sleep(400);
+  }
+  record("页面加载完成", loaded && reloaded, `首次加载=${loaded} 清空存储后重载=${reloaded}`);
   await sleep(1200);
 
   const shot = await send("Page.captureScreenshot", { format: "png" });
@@ -143,8 +155,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.1", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.1\.\d+/.test(v)],
+    ["代理健康检查显示 v3.2", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.2\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -273,6 +285,45 @@ try {
       return JSON.stringify({ total: btns.length, labeled, live: toast.getAttribute("aria-live") });
     })()`,
       (v) => { const o = JSON.parse(v); return o.total === o.labeled && o.total === 4 && o.live === "polite"; }],
+    ["设计令牌：圆角 / 阴影 / 玻璃已生效", `(() => {
+      const cs = getComputedStyle(document.documentElement);
+      return JSON.stringify({
+        rLg: cs.getPropertyValue("--r-lg").trim(),
+        hasShadow1: cs.getPropertyValue("--shadow-1").trim().length > 0,
+        glass: cs.getPropertyValue("--glass-blur").trim()
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.rLg === "16px" && o.hasShadow1 && o.glass === "30px"; }],
+    ["二级界面：设置弹窗是真的玻璃（backdrop-filter + 大圆角）", `(() => {
+      openSettings();
+      const cs = getComputedStyle(document.querySelector(".modal"));
+      const bf = cs.backdropFilter || cs.webkitBackdropFilter || "";
+      const overlay = getComputedStyle(document.getElementById("modalOverlay"));
+      const obf = overlay.backdropFilter || overlay.webkitBackdropFilter || "";
+      return JSON.stringify({ blur: /blur/.test(bf), radius: parseFloat(cs.borderRadius), overlayBlur: /blur/.test(obf) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.blur && o.radius >= 20 && o.overlayBlur; }],
+    ["二级界面：侧边面板同款玻璃", `(() => {
+      closeSettings({ target: document.getElementById("modalOverlay") });
+      openHistory();
+      const cs = getComputedStyle(document.querySelector(".history-panel"));
+      const bf = cs.backdropFilter || cs.webkitBackdropFilter || "";
+      return JSON.stringify({ blur: /blur/.test(bf), radius: parseFloat(cs.borderRadius) >= 20 });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.blur && o.radius; }],
+    ["分组标题已去掉 emoji（层级交给字号与字距）", `(() => {
+      const t = [...document.querySelectorAll(".section-title")].map(e => e.textContent.trim());
+      return JSON.stringify({ count: t.length, hasEmoji: t.some(x => /[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}]/u.test(x)), sample: t.slice(0, 3) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.count >= 3 && !o.hasEmoji; }],
+    ["进度条能真正显示（此前 style.display='' 被 CSS 覆盖）", `(() => {
+      const el = document.getElementById("progressWrap");
+      el.style.display = "block";
+      const shown = getComputedStyle(el).display !== "none";
+      el.style.display = "none";
+      return shown;
+    })()`,
+      (v) => v === true],
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',
