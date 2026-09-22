@@ -155,8 +155,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.4", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.4\.\d+/.test(v)],
+    ["代理健康检查显示 v3.5", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.5\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -421,6 +421,131 @@ try {
       });
     })()`,
       (v) => { const o = JSON.parse(v); return o.shown && o.layout === "flex" && o.narrower; }],
+    ["只改写选中的片段（局部改写）", `(() => {
+      const ta = document.getElementById("inputText");
+      ta.value = "开头保持不变。这是需要改写的中间一段。结尾也保持不变。";
+      ta.setSelectionRange(7, 19);   // 选中"这是需要改写的中间一段。"
+      const scope = getSelectedScope();
+      if (!scope) return JSON.stringify({ scope: null });
+      rewriteScope = { start: scope.start, end: scope.end };
+      rewrittenText = "此段已被改写";
+      applyScope();
+      return JSON.stringify({
+        picked: scope.text,
+        after: ta.value,
+        cleared: rewriteScope === null
+      });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        return o.picked === "这是需要改写的中间一段。" &&
+          o.after === "开头保持不变。此段已被改写结尾也保持不变。" &&
+          o.cleared;
+      }],
+    ["选区太短或全选时按整篇处理", `(() => {
+      const ta = document.getElementById("inputText");
+      ta.value = "一整段文本内容";
+      ta.setSelectionRange(0, 2);            // 太短
+      const shortScope = getSelectedScope();
+      ta.setSelectionRange(0, ta.value.length); // 全选
+      const allScope = getSelectedScope();
+      return JSON.stringify({ short: shortScope, all: allScope });
+    })()`,
+      (v) => JSON.parse(v).short === null && JSON.parse(v).all === null],
+    ["自定义补充要求会进 prompt，清空后不残留", `(() => {
+      const cur = loadSettings();
+      cur.customInstruction = "保留所有专业术语";
+      saveSettings(cur);
+      const withExtra = buildMessages(STRATEGIES[currentStrategy], "测试文本", "");
+      const cur2 = loadSettings();
+      cur2.customInstruction = "";
+      saveSettings(cur2);
+      const without = buildMessages(STRATEGIES[currentStrategy], "测试文本", "");
+      return JSON.stringify({
+        has: withExtra[1].content.includes("保留所有专业术语"),
+        missing: !without[1].content.includes("补充要求")
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.has && o.missing; }],
+    ["配置导出不含 API Key", `(() => {
+      const payload = buildConfigPayload();
+      const dump = JSON.stringify(payload);
+      return JSON.stringify({
+        type: payload.type,
+        models: Array.isArray(payload.settings.customModels),
+        // 名字里带 Key 的字段（rememberKeys）不算，关键是别导出密钥本身
+        noKey: !/"keys"\s*:/.test(dump) && !/"apiKey"/.test(dump) && !/sk-/.test(dump)
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.type === "reduce-aigc-config" && o.models && o.noKey; }],
+    ["配置导入去重（同一地址+模型只加一次）", `(() => {
+      const before = (loadSettings().customModels || []).length;
+      const file = new File([JSON.stringify({
+        type: "reduce-aigc-config",
+        settings: {
+          customModels: [
+            { name: "A", url: "https://import.example.com/v1", modelId: "m1", auth: "bearer" },
+            { name: "A 重复", url: "https://import.example.com/v1", modelId: "m1", auth: "bearer" },
+            { name: "B", url: "https://import.example.com/v1", modelId: "m2", auth: "apikey", noThinking: true }
+          ]
+        }
+      })], "c.json", { type: "application/json" });
+      importConfig(file);
+      const after = loadSettings().customModels || [];
+      return new Promise((resolve) => setTimeout(() => {
+        const cur = loadSettings().customModels || [];
+        const imported = cur.filter((m) => m.url === "https://import.example.com/v1");
+        resolve(JSON.stringify({
+          added: cur.length - before,
+          dedup: imported.length,
+          auth: imported.some((m) => m.auth === "apikey"),
+          noThinking: imported.some((m) => m.noThinking === true)
+        }));
+      }, 300));
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.added === 2 && o.dedup === 2 && o.auth && o.noThinking; }],
+    ["历史搜索能过滤，且按钮索引指向真实记录", `(() => {
+      localStorage.removeItem("aigc_history");
+      originalText = "关于人工智能伦理的讨论"; rewrittenText = "关于AI伦理的探讨";
+      saveHistory();
+      originalText = "数据库索引优化实践"; rewrittenText = "数据库索引调优做法";
+      saveHistory();
+      renderHistoryPanel();
+      const allCount = document.getElementById("historyPanelList").querySelectorAll(".history-item").length;
+      document.getElementById("historySearch").value = "数据库";
+      renderHistoryPanel();
+      const hit = document.getElementById("historyPanelList").querySelectorAll(".history-item").length;
+      const firstBtn = document.getElementById("historyPanelList").querySelector(".history-item-actions button").getAttribute("onclick");
+      document.getElementById("historySearch").value = "";
+      renderHistoryPanel();
+      return JSON.stringify({ all: allCount, hit, firstBtn });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        return o.all === 2 && o.hit === 1 && /loadHistory\(0\)/.test(o.firstBtn);
+      }],
+    ["历史导出可用，saveSettings 会返回写入结果", `(() => {
+      const wrote = saveSettings(Object.assign(loadSettings(), { customInstruction: "" }));
+      return JSON.stringify({
+        wrote: wrote === true,
+        exportFn: typeof exportHistory === "function" && typeof loadHistory === "function"
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.wrote && o.exportFn; }],
+    ["改写失败可复制错误详情、可重试", `JSON.stringify([typeof copyErrorDetail, typeof retryLast, typeof lastErrorText !== "undefined"])`,
+      (v) => v === JSON.stringify(["function", "function", true])],
+    ["设置面板分节顺序固定（模型表单里不该混进别的分节）", `(() => {
+      const titles = [...document.querySelectorAll(".modal-body .section-title")].map(e => e.textContent.trim());
+      return JSON.stringify(titles);
+    })()`,
+      (v) => JSON.stringify(JSON.parse(v)) === JSON.stringify(["API Key", "当前模型", "添加 / 管理模型", "补充说明", "配置"])],
+    ["补充说明是块级多行输入框（不被压成窄条）", `(() => {
+      const el = document.getElementById("customInstruction");
+      const box = el.getBoundingClientRect();
+      const body = el.closest(".modal-body").getBoundingClientRect();
+      return JSON.stringify({ ratio: box.width / body.width, h: Math.round(box.height) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.ratio > 0.85 && o.h >= 60; }],
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',

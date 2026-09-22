@@ -548,7 +548,9 @@
     border-bottom: 1px solid var(--glass-hairline);
   }
   .history-panel-title { font-size: 15px; font-weight: 600; }
-  .history-panel-body { position: relative; z-index: 1; flex: 1; overflow-y: auto; padding: 16px 18px; }
+  .history-search { position: relative; z-index: 1; padding: 12px 18px 4px; }
+  .history-search .input { width: 100%; }
+  .history-panel-body { position: relative; z-index: 1; flex: 1; overflow-y: auto; padding: 12px 18px; }
   .history-panel-footer { position: relative; z-index: 1; padding: 12px 18px 16px; border-top: 1px solid var(--glass-hairline); }
 
   .history-item {
@@ -609,6 +611,7 @@
     border-color: var(--accent); background: var(--card);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
   }
+  .input-block { width: 100%; min-height: 72px; resize: vertical; line-height: 1.6; }
   .input-key-name { width: 112px; flex-shrink: 0; }
   .input-key { flex: 1; min-width: 0; }
 
@@ -791,6 +794,7 @@
         <button class="btn btn-ghost btn-sm" onclick="downloadResult()">💾 下载 MD</button>
         <button class="btn btn-ghost btn-sm" onclick="downloadWord()">📄 导出 Word</button>
         <button class="btn btn-ghost btn-sm" onclick="polishAgain()">✨ 再降一次</button>
+        <button class="btn btn-ghost btn-sm" id="applyScopeBtn" onclick="applyScope()" style="display:none;">↩ 替换到原文</button>
       </div>
     </div>
   </div>
@@ -881,6 +885,29 @@
         例: https://api.deepseek.com/v1/chat/completions（只填到 /v1 会自动补 /chat/completions）
       </div>
       <div id="customModelList" style="margin-top:8px;"></div>
+
+      <div class="divider"></div>
+
+      <div class="section-title">补充说明</div>
+      <textarea class="input input-block" id="customInstruction" rows="3"
+        placeholder="可选：给模型一句补充要求，如「保留所有专业术语」「用更书面化的表达」"></textarea>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">
+        留空则用内置指令。写得太长或与原任务冲突会影响结果。
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-title">配置</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm" onclick="exportConfig()">⬇ 导出配置</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('configFile').click()">⬆ 导入配置</button>
+        <input type="file" id="configFile" accept=".json" style="display:none" onchange="importConfig(this.files[0])">
+      </div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.6;">
+        导出的是模型列表与偏好设置；<strong>出于安全，API Key 不会被导出</strong>，导入后需重新填写。
+      </div>
+
+      <div class="divider"></div>
       </div><!-- /stab-keys -->
 
     </div>
@@ -894,11 +921,17 @@
       <span class="history-panel-title">📜 改写历史</span>
       <button class="modal-close" onclick="closeHistory()">✕</button>
     </div>
+    <div class="history-search">
+      <input class="input" id="historySearch" placeholder="搜索原文或结果…" oninput="renderHistoryPanel()">
+    </div>
     <div class="history-panel-body" id="historyPanelList">
       <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">暂无记录</div>
     </div>
     <div class="history-panel-footer">
-      <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="width:100%;">🗑 清空全部历史</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" onclick="exportHistory()" style="flex:1;">⬇ 导出全部</button>
+        <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="flex:1;color:var(--danger);">🗑 清空全部</button>
+      </div>
     </div>
   </div>
 </div>
@@ -960,8 +993,15 @@ function loadSettings() {
   } catch { return defaultSettings(); }
 }
 
+// 返回是否写入成功：配额满 / 隐私模式下写不进去，调用方要能知道并回滚界面状态
 function saveSettings(s) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    return true;
+  } catch (err) {
+    toast("浏览器存储不可用，这次设置没保存成功");
+    return false;
+  }
 }
 
 function loadKeys() {
@@ -974,12 +1014,18 @@ function loadKeys() {
 
 function saveKeys(keys, remember) {
   const payload = JSON.stringify(keys);
-  if (remember) {
-    localStorage.setItem(KEYS_KEY, payload);
-    sessionStorage.removeItem(KEYS_KEY);
-  } else {
-    sessionStorage.setItem(KEYS_KEY, payload);
-    localStorage.removeItem(KEYS_KEY);
+  try {
+    if (remember) {
+      localStorage.setItem(KEYS_KEY, payload);
+      sessionStorage.removeItem(KEYS_KEY);
+    } else {
+      sessionStorage.setItem(KEYS_KEY, payload);
+      localStorage.removeItem(KEYS_KEY);
+    }
+    return true;
+  } catch (err) {
+    toast("浏览器存储不可用，Key 未保存（本次会话仍可使用）");
+    return false;
   }
 }
 
@@ -1069,6 +1115,8 @@ function buildMessages(strategy, text, context) {
     user += `\n\n【上文（仅供理解指代关系，不要改写，也不要输出）】\n${context}`;
   }
   user += (context ? "\n\n【待改写文本】\n" : "\n\n") + text;
+  const extra = (loadSettings().customInstruction || "").trim();
+  if (extra) user += `\n\n【用户的补充要求（在不改变任务性质的前提下尽量满足）】\n${extra}`;
   return [{ role: "system", content: system }, { role: "user", content: user }];
 }
 
@@ -1120,6 +1168,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 草稿开关
+  const instrBox = document.getElementById("customInstruction");
+  if (instrBox) {
+    instrBox.value = s.customInstruction || "";
+    instrBox.addEventListener("change", () => {
+      const cur = loadSettings();
+      cur.customInstruction = instrBox.value.trim();
+      if (!saveSettings(cur)) { instrBox.value = cur.customInstruction || ""; return; }
+      toast(cur.customInstruction ? "已保存补充要求" : "已清除补充要求");
+    });
+  }
+
   const draftBox = document.getElementById("saveDraft");
   if (draftBox) {
     draftBox.checked = s.saveDraft !== false;
@@ -1195,7 +1254,7 @@ async function checkProxyHealth() {
       el.innerHTML = `<span class="status-dot err"></span>代理版本过旧 v${escapeHtml(version)}`;
     }
   } catch {
-    el.innerHTML = '<span class="status-dot err"></span>代理未就绪';
+    el.innerHTML = '<span class="status-dot err"></span>代理未就绪 <button class="btn btn-ghost btn-sm" style="margin-left:6px;padding:2px 8px;" onclick="checkProxyHealth()">重试</button>';
   }
 }
 
@@ -1490,6 +1549,20 @@ async function testConnection() {
 // ==================== Rewrite ====================
 let abortController = null;
 let rewriteStopped = false;
+let lastErrorText = "";
+
+function copyErrorDetail() {
+  if (!lastErrorText) return toast("没有错误详情");
+  navigator.clipboard.writeText(lastErrorText).then(
+    () => toast("错误详情已复制"),
+    () => toast("复制失败，请手动选择文字")
+  );
+}
+
+function retryLast() {
+  toast("重新改写中…");
+  startRewrite();
+}
 
 function setRewriting(on) {
   const btn = document.getElementById("rewriteBtn");
@@ -1503,6 +1576,17 @@ function stopRewrite() {
   rewriteStopped = true;
   if (abortController) abortController.abort();
   toast("正在停止…");
+}
+
+let rewriteScope = null; // {start,end}：只改写选中的片段时记录范围
+
+function getSelectedScope() {
+  const ta = document.getElementById("inputText");
+  const start = ta.selectionStart || 0;
+  const end = ta.selectionEnd || 0;
+  const text = ta.value.slice(start, end).trim();
+  // 选得太少多半是误选，按整篇处理
+  return text.length >= 10 && text !== ta.value.trim() ? { start, end, text } : null;
 }
 
 async function startRewrite() {
@@ -1520,8 +1604,11 @@ async function startRewrite() {
     return;
   }
 
-  originalText = document.getElementById("inputText").value.trim();
+  const scope = getSelectedScope();
+  rewriteScope = scope ? { start: scope.start, end: scope.end } : null;
+  originalText = scope ? scope.text : document.getElementById("inputText").value.trim();
   if (!originalText) return toast("请先输入待改写文本");
+  if (scope) toast(`只改写选中的 ${originalText.length} 字`);
   if (originalText.length > 50000) return toast("文本过长（超过 5 万字），请分批改写");
   if (!currentIntensity) currentIntensity = "normal";
 
@@ -1567,7 +1654,16 @@ function copyResult() {
   if (!rewrittenText) return toast("没有可复制的内容");
   navigator.clipboard.writeText(rewrittenText).then(
     () => toast("已复制到剪贴板"),
-    () => toast("复制失败，请手动选择")
+    () => {
+      // 剪贴板不可用（非 https / 无权限）时直接帮用户选中，省一步操作
+      const el = document.getElementById("outputArea");
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      toast("已自动选中结果，请按 Ctrl/⌘ + C 复制");
+    }
   );
 }
 
@@ -1663,6 +1759,8 @@ function clearAll() {
   document.getElementById("compareArea").style.display = "none";
   document.getElementById("outputArea").style.display = "";
   hideQualityHint();
+  rewriteScope = null;
+  updateApplyScopeBtn();
   setResultMeta("");
   setUploadHint(UPLOAD_HINT_DEFAULT);
   setRewriting(false);
@@ -1695,12 +1793,89 @@ function showViewTabs(on) {
   if (hint) hint.style.display = on ? "none" : "";
 }
 
+function buildConfigPayload() {
+  const s = loadSettings();
+  return {
+    type: "reduce-aigc-config",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    settings: {
+      model: s.model || null,
+      customModels: s.customModels || [],
+      rememberKeys: s.rememberKeys !== false,
+      saveDraft: s.saveDraft !== false,
+      customInstruction: s.customInstruction || ""
+    }
+  };
+}
+
+function exportConfig() {
+  const payload = buildConfigPayload();
+  saveBlob(JSON.stringify(payload, null, 2), "application/json;charset=utf-8", `reduce-aigc-config-${Date.now()}.json`);
+  toast("已导出配置（不含 API Key）");
+}
+
+async function importConfig(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const incoming = data && data.settings ? data.settings : null;
+    if (!incoming) return toast("文件格式不对：缺少 settings 字段");
+    if (!Array.isArray(incoming.customModels)) return toast("文件格式不对：缺少模型列表");
+
+    const cur = loadSettings();
+    const seen = new Set((cur.customModels || []).map((m) => `${m.url}|${m.modelId}`));
+    let added = 0;
+    for (const m of incoming.customModels) {
+      if (!m || !m.url || !m.modelId) continue;
+      const key = `${m.url}|${m.modelId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cur.customModels.push({
+        id: "cm_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+        name: m.name || m.modelId,
+        url: m.url,
+        modelId: m.modelId,
+        auth: m.auth === "apikey" ? "apikey" : "bearer",
+        noThinking: !!m.noThinking
+      });
+      added += 1;
+    }
+    if (typeof incoming.customInstruction === "string") cur.customInstruction = incoming.customInstruction;
+    if (typeof incoming.saveDraft === "boolean") cur.saveDraft = incoming.saveDraft;
+    saveSettings(cur);
+    renderCustomModels();
+    document.getElementById("customInstruction").value = cur.customInstruction || "";
+    toast(added ? `已导入 ${added} 个模型` : "没有新增模型（已存在或文件为空）");
+  } catch (err) {
+    toast("导入失败：" + err.message);
+  }
+}
+
 function setUploadHint(text) {
   const el = document.getElementById("uploadHint");
   if (el) el.textContent = text;
 }
 
 // 右栏底部那行元信息：与左栏的说明行同层，保证两栏底部结构一致
+function updateApplyScopeBtn() {
+  const btn = document.getElementById("applyScopeBtn");
+  if (btn) btn.style.display = rewriteScope && rewrittenText ? "" : "none";
+}
+
+// 只改选中片段时，用结果替换回原文的那一截（原文其余部分不动）
+function applyScope() {
+  if (!rewriteScope || !rewrittenText) return toast("没有可替换的内容");
+  const ta = document.getElementById("inputText");
+  const before = ta.value.slice(0, rewriteScope.start);
+  const after = ta.value.slice(rewriteScope.end);
+  setInputText(before + rewrittenText + after);
+  rewriteScope = null;
+  updateApplyScopeBtn();
+  toast("已替换到原文");
+}
+
 function setResultMeta(text) {
   const el = document.getElementById("resultMeta");
   if (el) el.textContent = text || "改写完成后这里会显示本次所用模型与强度";
@@ -1726,13 +1901,16 @@ function scheduleDraftSave() {
   draftTimer = setTimeout(saveDraft, 600);
 }
 
+const DRAFT_MAX_CHARS = 200000;
+
 function saveDraft() {
   if (loadSettings().saveDraft === false) return; // 开关关掉后任何调用都不应再写
   try {
     const text = document.getElementById("inputText").value;
-    if (!text.trim()) localStorage.removeItem(DRAFT_KEY);
-    else localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, time: Date.now() }));
-  } catch { /* 隐私模式或超出配额 */ }
+    if (!text.trim()) { localStorage.removeItem(DRAFT_KEY); return; }
+    if (text.length > DRAFT_MAX_CHARS) { localStorage.removeItem(DRAFT_KEY); return; }
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, time: Date.now() }));
+  } catch { /* 隐私模式或超出配额，草稿丢了不影响使用 */ }
 }
 
 function restoreDraft() {
@@ -2037,7 +2215,10 @@ async function handleFile(file) {
 // ==================== History Panel ====================
 function openHistory() {
   document.getElementById("historyOverlay").classList.add("show");
+  const box = document.getElementById("historySearch");
+  if (box) box.value = "";
   renderHistoryPanel();
+  setTimeout(() => { const box2 = document.getElementById("historySearch"); if (box2) box2.focus(); }, 80);
 }
 
 function closeHistory(e) {
@@ -2058,17 +2239,23 @@ function getHistory() {
 }
 
 function persistHistory(records) {
-  let list = records;
+  let list = records.slice();
   while (list.length && JSON.stringify(list).length > HISTORY_MAX_CHARS) {
     list = list.slice(0, list.length - 1);
   }
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
-  } catch {
-    toast("浏览器存储已满，历史记录未保存");
-    return list;
+  // 配额是共享的：写不进去就继续丢旧记录，直到能写入为止
+  while (true) {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+      return list;
+    } catch {
+      if (!list.length) {
+        toast("浏览器存储已满，历史记录无法保存");
+        return list;
+      }
+      list = list.slice(0, Math.max(0, list.length - 5));
+    }
   }
-  return list;
 }
 
 function saveHistory() {
@@ -2088,10 +2275,21 @@ function saveHistory() {
 }
 
 function renderHistoryPanel() {
-  const records = getHistory();
+  const all = getHistory();
   const el = document.getElementById("historyPanelList");
-  if (!records.length) {
+  if (!el) return;
+
+  const q = String((document.getElementById("historySearch") || {}).value || "").trim().toLowerCase();
+  const records = q
+    ? all.filter((r) => `${r.original || ""} ${r.result || ""}`.toLowerCase().includes(q))
+    : all;
+
+  if (!all.length) {
     el.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">暂无记录</div>';
+    return;
+  }
+  if (!records.length) {
+    el.innerHTML = `<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">没有匹配「${escapeHtml(q)}」的记录</div>`;
     return;
   }
   el.innerHTML = records.map((r, i) => `
@@ -2103,12 +2301,49 @@ function renderHistoryPanel() {
       <div class="history-item-orig">原文：${escapeHtml((r.original || "").substring(0, 200))}…</div>
       <div class="history-item-result">改写：${escapeHtml(r.resultPreview || (r.result || "").substring(0, 200))}…</div>
       <div class="history-item-actions">
-        <button class="btn btn-ghost btn-sm" onclick="viewHistory(${i})">👁 查看</button>
-        <button class="btn btn-ghost btn-sm" onclick="copyHistory(${i})">📋 复制</button>
-        <button class="btn btn-ghost btn-sm" onclick="deleteHistory(${i})" style="color:var(--danger);">🗑</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadHistory(${all.indexOf(r)})">↩ 载入</button>
+        <button class="btn btn-ghost btn-sm" onclick="viewHistory(${all.indexOf(r)})">👁 查看</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyHistory(${all.indexOf(r)})">📋 复制</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteHistory(${all.indexOf(r)})" style="color:var(--danger);">🗑</button>
       </div>
     </div>
   `).join("");
+}
+
+// 把历史里的原文放回输入区，方便重新改
+function loadHistory(index) {
+  const r = getHistory()[index];
+  if (!r) return;
+  setInputText(r.original || "");
+  rewrittenText = "";
+  document.getElementById("outputArea").innerHTML = '<span class="output-placeholder">改写后的文本将显示在这里…</span>';
+  document.getElementById("outputCount").textContent = "0 字";
+  showViewTabs(false);
+  hideQualityHint();
+  rewriteScope = null;
+  updateApplyScopeBtn();
+  closeHistory({ target: document.getElementById("historyOverlay") });
+  toast("已载入原文，可重新改写");
+}
+
+function exportHistory() {
+  const records = getHistory();
+  if (!records.length) return toast("还没有历史记录");
+  const lines = records.map((r, i) => [
+    `## ${i + 1}. ${r.time || ""} ｜ ${r.strategy || ""} ｜ ${r.intensity === "heavy" ? "重度" : "普通"}`,
+    "",
+    "### 原文",
+    "",
+    r.original || "",
+    "",
+    "### 改写后",
+    "",
+    r.result || "",
+    ""
+  ].join("\n"));
+  const md = `# 改写历史（共 ${records.length} 条）\n导出时间：${new Date().toLocaleString()}\n\n${lines.join("\n---\n\n")}`;
+  saveBlob(md, "text/markdown;charset=utf-8", `rewrite-history-${Date.now()}.md`);
+  toast(`已导出 ${records.length} 条历史`);
 }
 
 function viewHistory(i) {
@@ -2116,8 +2351,7 @@ function viewHistory(i) {
   if (!r) return;
   originalText = r.original || "";
   rewrittenText = r.result || "";
-  document.getElementById("inputText").value = originalText;
-  document.getElementById("inputCount").textContent = originalText.length + " 字";
+  setInputText(originalText);
   document.getElementById("outputArea").textContent = rewrittenText;
   document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
   showViewTabs(true);
@@ -2299,12 +2533,19 @@ async function singleRewrite(apiKey) {
     switchView("result");
     saveHistory();
     setResultMeta(describeResult(reportQuality(originalText, rewrittenText)));
+    updateApplyScopeBtn();
     toast("✅ 改写完成");
   } else if (result.stopped) {
     outputEl.innerHTML = '<span style="color:var(--warning)">⏹ 已停止</span>';
     toast("已停止");
   } else {
-    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(result.error)}<br><br>建议：缩短文本至 1500 字以内、切换模型，或用设置里的「🔌 测试当前模型」确认连接。</span>`;
+    lastErrorText = String(result.error || "");
+    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(lastErrorText)}</span>` +
+      `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">` +
+      `<button class="btn btn-ghost btn-sm" onclick="copyErrorDetail()">📋 复制错误详情</button>` +
+      `<button class="btn btn-ghost btn-sm" onclick="retryLast()">🔁 再试一次</button>` +
+      `</div>` +
+      `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.6;">建议：缩短文本至 1500 字以内、切换模型，或用设置里的「🔌 测试当前模型」确认连接。</div>`;
   }
 }
 
@@ -2355,12 +2596,19 @@ async function batchRewrite(apiKey) {
 
   const results = [];
   let stopped = false;
+  const startedAt = Date.now();
 
   for (let i = 0; i < chunks.length; i++) {
     if (rewriteStopped) { stopped = true; break; }
 
-    progressText.textContent = `正在改写第 ${i + 1}/${chunks.length} 段…`;
     progressFill.style.width = ((i / chunks.length) * 100).toFixed(1) + "%";
+    if (i > 0) {
+      const perSeg = (Date.now() - startedAt) / i;
+      const eta = Math.round((chunks.length - i) * perSeg / 1000);
+      progressText.textContent = `正在改写第 ${i + 1}/${chunks.length} 段…· 约剩 ${eta} 秒`;
+    } else {
+      progressText.textContent = `正在改写第 1/${chunks.length} 段…`;
+    }
 
     const context = i > 0 ? chunks[i - 1].slice(-BATCH_CONTEXT_CHARS) : "";
     const result = await doRewrite(apiKey, s, chunks[i], false, context);
@@ -2404,6 +2652,7 @@ function finishBatch(results, total, progressWrap, progressText, progressFill, o
   switchView("result");
   saveHistory();
   setResultMeta(describeResult(reportQuality(originalText, rewrittenText)));
+  updateApplyScopeBtn();
   if (warnText) toast(warnText);
   setTimeout(() => { progressWrap.style.display = "none"; }, 1800);
 }
