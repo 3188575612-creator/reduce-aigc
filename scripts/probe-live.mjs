@@ -2,6 +2,14 @@
 // 运行：npm run probe:live [baseUrl]
 // 关键点：Pages 开启 SPA 回退后，不存在的路径也会返回 200 + index.html，
 // 只看状态码会把回退误判成泄露；这里用 Content-Type + 正文特征区分。
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// 与本地 package.json 比对，才能发现「代码推了但线上还没部署完 / 构建失败」
+const LOCAL_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
+
 const BASE = (process.argv[2] || "https://reduce-aigc.pages.dev").replace(/\/$/, "");
 
 const SHOULD_BE_PUBLIC = ["/", "/announcement.json"];
@@ -60,8 +68,10 @@ for (const r of rows) {
 
 try {
   const health = await (await fetch(BASE + "/api/health")).json();
-  console.log(`\n/api/health -> version=${health.version} models=${health.models}`);
-  if (!/^3\./.test(String(health.version))) problems.push(`线上版本异常：${health.version}`);
+  console.log(`\n/api/health -> version=${health.version}（本地 package.json: ${LOCAL_VERSION}） models=${health.models}`);
+  if (health.version !== LOCAL_VERSION) {
+    problems.push(`线上版本 ${health.version} ≠ 本地 ${LOCAL_VERSION}：代码已推但部署未完成或构建失败`);
+  }
   if (health.models !== "user-supplied") problems.push(`health 仍在暴露模型清单：${JSON.stringify(health.models)}`);
 } catch (err) {
   problems.push("/api/health 不可用：" + err.message);
