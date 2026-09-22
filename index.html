@@ -404,6 +404,10 @@
       <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
         自定义模型需自行获取对应服务的 Key
       </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+        <button class="btn btn-ghost btn-sm" onclick="testConnection()">🔌 测试当前模型</button>
+        <span id="testResult" style="font-size:11px;color:var(--text-secondary);line-height:1.6;"></span>
+      </div>
 
       <div class="divider"></div>
 
@@ -895,6 +899,51 @@ function saveModel() {
   s.model = document.getElementById("modelSelect").value;
   saveSettings(s);
   toast("模型已切换");
+}
+
+// 用当前 Key + 当前模型真打一次上游，确认鉴权与参数被接受（消耗几十 token）。
+async function testConnection() {
+  const el = document.getElementById("testResult");
+  const key = getActiveKey();
+  if (!key) return toast("请先添加 API Key");
+
+  const s = loadSettings();
+  const cm = getCustomModel(s.model);
+  const label = cm ? cm.name : s.model;
+  el.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在测试 ' + escapeHtml(label) + '…</span>';
+
+  const body = {
+    apiKey: key.key,
+    model: cm ? cm.modelId : s.model,
+    temperature: 0,
+    max_tokens: 32,
+    messages: [{ role: "user", content: "只回复两个字：可以" }]
+  };
+  if (cm) { body.baseUrl = cm.url; body.authType = "bearer"; }
+
+  const started = Date.now();
+  try {
+    const resp = await fetch("/api/rewrite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const raw = await resp.text();
+    let data = null;
+    try { data = JSON.parse(raw); } catch { /* 非 JSON */ }
+    const ms = Date.now() - started;
+
+    if (resp.ok && data && !data.error) {
+      const text = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "").trim().slice(0, 20);
+      el.innerHTML = `<span style="color:var(--success)">✅ ${escapeHtml(label)} 可用 · ${ms}ms · 返回「${escapeHtml(text)}」</span>`;
+    } else {
+      const rawMsg = (data && data.error && (data.error.message || data.error)) || raw.slice(0, 160) || `HTTP ${resp.status}`;
+      const msg = typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg);
+      el.innerHTML = `<span style="color:var(--danger)">❌ HTTP ${resp.status}：${escapeHtml(msg.slice(0, 220))}</span>`;
+    }
+  } catch (err) {
+    el.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(err.message)}</span>`;
+  }
 }
 
 // ==================== Rewrite ====================

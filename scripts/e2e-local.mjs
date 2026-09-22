@@ -108,19 +108,18 @@ if (!ready) {
   let redirectsDetail = "";
   let redirectsOk = false;
   try {
+    const { expectedRules } = await import("./gen-redirects.mjs");
+    const rules = expectedRules();
     const txt = fs.readFileSync(path.join(ROOT, "_redirects"), "utf8");
-    const lines = txt.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
-    const mustCover = [
-      "/server.js", "/worker.js", "/wrangler.jsonc",
-      "/package.json", "/README.md", "/.gitignore", "/.assetsignore", "/scripts/*",
-    ];
-    const miss = mustCover.filter((p) => !lines.some((l) => l.startsWith(p + " ") && / 3\d\d$/.test(l)));
-    redirectsOk = miss.length === 0;
-    redirectsDetail = miss.length ? "缺少或状态码非 3xx 的规则: " + miss.join(", ") : `共 ${lines.length} 条规则`;
+    const missing = rules.filter((r) => !txt.includes(r));
+    redirectsOk = missing.length === 0;
+    redirectsDetail = missing.length
+      ? `_redirects 缺 ${missing.length} 条规则（跑 npm run gen:redirects）：${missing.join(", ")}`
+      : `覆盖 ${rules.length} 条规则`;
   } catch (err) {
     redirectsDetail = err.message;
   }
-  check("_redirects 挡住全部开发文件（线上发布面收口）", redirectsOk, redirectsDetail);
+  check("_redirects 覆盖全部被跟踪的非公开文件（发布面收口）", redirectsOk, redirectsDetail);
 
   const nf = await fetch(base + "/not-exist");
   check("未知路径 -> 404", nf.status === 404, `status=${nf.status}`);

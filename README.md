@@ -71,8 +71,9 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 |---|---|
 | `npm test` | 代理层回归自测：本地 mock 上游，32 项断言（鉴权、超时、重试、流式、限流、CORS、参数夹取、SSE） |
 | `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路（含 model 透传、静态路由、CSP、404） |
-| `npm run test:ui` | 无头 Edge + CDP：在真实页面上下文断言分段、max_tokens、历史全文、Key 存储等 24 项，并抓运行时异常 |
+| `npm run test:ui` | 无头 Edge + CDP：在真实页面上下文断言分段、max_tokens、历史全文、Key 存储等 25 项，并抓运行时异常 |
 | `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
+| `npm run gen:redirects` | 按 git 跟踪清单重新生成 `_redirects`（新增根目录文件后必跑，否则 e2e 会失败） |
 | `npm run test:all` | 依次跑前三项（不含线上探测） |
 
 前三项都不需要真实 API Key。
@@ -85,11 +86,14 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 - **Workers 路径**：发布面 = `assets.directory` 减去 `.assetsignore` 里列出的文件。
 
 `_redirects` 只支持 301/302/303/307/308（**不支持 404**），所以用 302 把开发文件指回首页，
-内容不再可取。改后务必跑 `npm run probe:live` 确认线上真的挡住了。
+内容不再可取。**规则由 `scripts/gen-redirects.mjs` 从 `git ls-files` 生成**（`npm run gen:redirects`），
+所以新增根目录文件后跑一次就不会漏；e2e 会断言清单与文件一致。改完务必跑 `npm run probe:live`。
 
-**彻底的做法**（需要动一次 Cloudflare 控制台）：新建 `public/` 目录只放 `index.html` 与
-`announcement.json`，把 Build output directory 从 `/` 改成 `public`，再把 `server.js` 的静态路由
-指到 `public/`。这样发布面就只剩两个文件，不再依赖 `_redirects` 的规则维护。
+**为什么没改成 `public/` 发布目录**：那样需要重建 Pages 项目的目录结构并在控制台改
+Build output directory，切换过程中容易把线上弄挂（构建用的目录一旦不存在就会部署失败）。
+当前「生成式黑名单 + 测试守护 + 线上探测」已经把风险堵住，收益不足以换这个风险。
+若你仍想彻底收窄，步骤是：建 `public/` 只放 `index.html` 与 `announcement.json` → 控制台把
+Build output directory 改成 `public` → 删掉 `_redirects` 与根目录副本（顺序别颠倒）。
 
 ## 使用
 
@@ -115,6 +119,11 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 也可在设置里添加自定义模型：填名称、**完整** API 地址、模型 ID。地址必须为 https（本机环回可用 http）；
 只填到 `/v1` 会自动补 `/chat/completions`。自定义模型不套用上面的预置约束。
 
+**换模型或换 Key 后，先在设置里点「🔌 测试当前模型」**：它会用你当前的 Key 真打一次上游
+（`max_tokens: 32`，只花几十 token），直接显示成功/失败与上游原始报错。
+上面几条参数约束是按官方文档写的，没有用真实 Key 跑过；这个按钮就是用来当场验证的 ——
+若某个模型报参数错误，删掉 `MODEL_ENDPOINTS` 里对应那行 `extraBody` 或上限即可。
+
 ## 安全与隐私
 
 - API Key 仅存放在浏览器（默认 localStorage；可在设置里改成仅本次会话，关闭浏览器即清除）
@@ -137,6 +146,13 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 - `raw.githubusercontent.com` 在本机不可达，故公告改为**同源优先**（`/announcement.json`）。
 
 ## 变更记录
+
+### 2.1.2
+- `_redirects` 改为**从 `git ls-files` 生成**（`npm run gen:redirects`），并补上漏掉的
+  `/.gitignore`、`/.assetsignore`（实测确认 dotfile 在 Pages 上会被发布）；e2e 断言清单与文件一致
+- 设置面板新增「🔌 测试当前模型」：用当前 Key 真打一次上游，当场验证鉴权与参数是否被接受
+  （此前 GLM-4.7 / MiMo 的参数约束只有文档级依据，没有真实 Key 实测）
+- 明确不改用 `public/` 发布目录的理由（切换过程有把线上弄挂的风险，收益不足），步骤记在 README
 
 ### 2.1.1
 - **修复线上暴露面**：实测发现 `https://reduce-aigc.pages.dev/server.js`、`/scripts/*`、`/worker.js`、
