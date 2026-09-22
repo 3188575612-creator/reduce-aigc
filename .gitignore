@@ -2,3 +2,5 @@ node_modules/
 .env
 .wrangler/
 dist/
+.workbuddy/
+output/

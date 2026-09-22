@@ -38,6 +38,15 @@
     padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
     box-shadow: var(--shadow);
   }
+
+  /* ---- First-run notice ---- */
+  .notice-bar {
+    margin: 12px 24px 0; padding: 10px 14px;
+    background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius);
+    display: flex; align-items: center; gap: 14px;
+    font-size: 12px; line-height: 1.7; color: #78350f;
+  }
+  .notice-bar-text { flex: 1; min-width: 0; }
   .header-left { display:flex; align-items:center; gap:10px; }
   .logo { font-size:20px; font-weight:700; color:var(--accent); }
   .badge { font-size:11px; background:var(--accent-light); color:var(--accent); padding:3px 10px; border-radius:999px; font-weight:600; }
@@ -265,6 +274,7 @@
     <span class="badge">Beta</span>
   </div>
   <div class="header-right">
+    <span class="header-info" id="proxyStatus"></span>
     <span class="header-info" id="headerInfo"></span>
     <button class="btn-settings" title="改写历史" onclick="openHistory()">📜</button>
     <button class="btn-settings" title="公告" onclick="openAnnounce()">📢</button>
@@ -272,6 +282,16 @@
     <button class="btn-settings" title="设置" onclick="openSettings()">⚙</button>
   </div>
 </header>
+
+<!-- First-run notice -->
+<div class="notice-bar" id="firstRunNotice" style="display:none;">
+  <span class="notice-bar-text">
+    ⚠️ 论文原文与你的 API Key 会经本站代理转发给第三方大模型服务（DeepSeek / 智谱 / 阿里 / 小米）。
+    改写结果仅供写作参考，请遵守你所在机构关于 AI 使用的规定，不要用它规避学术诚信要求；
+    「AI 痕迹自查」是模型自评，不是权威检测。
+  </span>
+  <button class="btn btn-ghost btn-sm" onclick="dismissFirstRunNotice()">知道了</button>
+</div>
 
 <!-- Main -->
 <div class="main">
@@ -285,7 +305,7 @@
     <span class="strategy-desc" id="strategyDesc">分号长段 + 句首多样 + 段落不均</span>
     <span class="strategy-label" style="margin-left:14px;">改写强度</span>
     <div class="strategy-group" id="intensityGroup">
-      <button class="strategy-btn" data-intensity="normal">🌿 普通</button>
+      <button class="strategy-btn active" data-intensity="normal">🌿 普通</button>
       <button class="strategy-btn" data-intensity="heavy">🔥 重度</button>
     </div>
   </div>
@@ -301,7 +321,10 @@
     </div>
     <input type="file" id="fileInput" accept=".docx,.txt" style="display:none" onchange="handleFile(this.files[0])">
     <textarea class="input-area" id="inputText"
-      placeholder="在此粘贴论文段落…&#10;&#10;建议每次 500-2000 字效果最佳。"></textarea>
+      placeholder="在此粘贴论文段落…&#10;&#10;建议每次 500-2000 字效果最佳；超过 2000 字会自动按段落分段改写（每段约 500 字）。"></textarea>
+    <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.6;">
+      文本会经本站代理发送至第三方大模型服务，改写结果仅供写作参考。
+    </div>
   </div>
 
   <!-- Right: Output -->
@@ -355,8 +378,15 @@
 
       <div class="add-key-form">
         <input class="input input-key-name" id="newKeyName" placeholder="名称（可选）" maxlength="20">
-        <input class="input input-key" id="newKeyValue" type="password" placeholder="输入 DeepSeek API Key…">
+        <input class="input input-key" id="newKeyValue" type="password" placeholder="输入 API Key…">
         <button class="btn btn-primary btn-sm" onclick="addApiKey()">+ 添加</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
+        <input type="checkbox" id="rememberKeys">
+        记住 Key（关闭则仅保留在本次会话，关闭浏览器即清除）
+      </label>
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
+        Key 只保存在你自己的浏览器里，但每次改写都会经由本站代理转发给上游模型；不要使用你不信任的第三方部署。
       </div>
 
       <div class="divider"></div>
@@ -413,12 +443,12 @@
 <div class="history-overlay" id="detectOverlay" onclick="closeDetect(event)">
   <div class="history-panel" onclick="event.stopPropagation()">
     <div class="history-panel-header">
-      <span class="history-panel-title">🔍 AI痕迹检测</span>
+      <span class="history-panel-title">🔍 AI 痕迹自查（模型自评）</span>
       <button class="modal-close" onclick="closeDetect()">✕</button>
     </div>
     <div class="history-panel-body" id="detectPanelBody">
       <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">
-        改写完成后点击下方按钮开始检测<br><br>
+        由大模型对改写结果逐句打分，<strong>不是权威查重/AIGC 检测</strong>，同一模型评价自己的输出会偏乐观，仅用于自查参考。<br><br>
         <button class="btn btn-primary btn-sm" onclick="runDetect()">🔍 开始检测</button>
       </div>
     </div>
@@ -444,20 +474,63 @@
 <script>
 // ==================== Data store ====================
 const STORAGE_KEY = "aigc_settings";
-
-function loadSettings() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaultSettings();
-  } catch { return defaultSettings(); }
-}
+const KEYS_KEY = "aigc_keys";
 
 function defaultSettings() {
   return {
     activeKeyId: null,
-    keys: [],
     model: "deepseek-v4-pro",
-    customModels: []
+    customModels: [],
+    rememberKeys: true
   };
+}
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (!s || typeof s !== "object") return defaultSettings();
+    const merged = Object.assign(defaultSettings(), s);
+    if (typeof merged.rememberKeys !== "boolean") merged.rememberKeys = true;
+    return merged;
+  } catch { return defaultSettings(); }
+}
+
+function saveSettings(s) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+}
+
+function loadKeys() {
+  try {
+    const raw = sessionStorage.getItem(KEYS_KEY) || localStorage.getItem(KEYS_KEY);
+    const list = JSON.parse(raw || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
+
+function saveKeys(keys, remember) {
+  const payload = JSON.stringify(keys);
+  if (remember) {
+    localStorage.setItem(KEYS_KEY, payload);
+    sessionStorage.removeItem(KEYS_KEY);
+  } else {
+    sessionStorage.setItem(KEYS_KEY, payload);
+    localStorage.removeItem(KEYS_KEY);
+  }
+}
+
+function migrateLegacyKeys() {
+  let legacy = null;
+  try { legacy = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return; }
+  if (!legacy || typeof legacy !== "object") return;
+  const hadInlineKeys = Array.isArray(legacy.keys) && legacy.keys.length > 0;
+  if (hadInlineKeys && !localStorage.getItem(KEYS_KEY)) {
+    saveKeys(legacy.keys, legacy.rememberKeys !== false);
+    legacy.activeKeyId = legacy.activeKeyId || legacy.keys[0].id;
+  }
+  if ("keys" in legacy) {
+    delete legacy.keys;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(legacy));
+  }
 }
 
 function getCustomModel(modelId) {
@@ -465,13 +538,9 @@ function getCustomModel(modelId) {
   return (s.customModels || []).find(m => m.id === modelId);
 }
 
-function saveSettings(s) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-}
-
 function getActiveKey() {
   const s = loadSettings();
-  return s.keys.find(k => k.id === s.activeKeyId) || null;
+  return loadKeys().find(k => k.id === s.activeKeyId) || null;
 }
 
 // ==================== Strategies ====================
@@ -505,17 +574,41 @@ const STRATEGIES = {
 };
 
 let currentStrategy = "sentence-shuffle";
-let currentIntensity = null;
+let currentIntensity = "normal";
 let originalText = "";
 let rewrittenText = "";
 
 const INTENSITY = {
-  normal: { temperature: 1.0, maxMultiplier: 1.3 },
-  heavy:  { temperature: 1.4, maxMultiplier: 1.8 }
+  normal: { temperature: 1.0, maxMultiplier: 1.4, label: "普通" },
+  heavy:  { temperature: 1.4, maxMultiplier: 1.8, label: "重度" }
 };
+
+const MAX_TOKENS_CAP = 8192;
+const BATCH_CHUNK_SIZE = 500;
+const BATCH_CONTEXT_CHARS = 120;
+const PROXY_VERSION_EXPECTED = "2.";
+
+function estimateMaxTokens(text, intensity) {
+  const mult = (INTENSITY[intensity] || INTENSITY.normal).maxMultiplier;
+  return Math.max(1024, Math.min(MAX_TOKENS_CAP, Math.ceil(text.length * mult)));
+}
+
+function buildMessages(strategy, text, context) {
+  const system = context
+    ? "你只输出【待改写文本】改写后的内容。不要输出上文，不要添加任何前缀、后缀或解释。"
+    : "你只输出改写后的文本，不添加任何前缀、后缀或解释。";
+  let user = strategy.prompt;
+  if (context) {
+    user += `\n\n【上文（仅供理解指代关系，不要改写，也不要输出）】\n${context}`;
+  }
+  user += (context ? "\n\n【待改写文本】\n" : "\n\n") + text;
+  return [{ role: "system", content: system }, { role: "user", content: user }];
+}
 
 // ==================== Init ====================
 document.addEventListener("DOMContentLoaded", () => {
+  migrateLegacyKeys();
+
   // 策略切换
   document.getElementById("strategyGroup").addEventListener("click", (e) => {
     const btn = e.target.closest(".strategy-btn");
@@ -544,11 +637,62 @@ document.addEventListener("DOMContentLoaded", () => {
   const s = loadSettings();
   document.getElementById("modelSelect").value = s.model || "deepseek-v4-pro";
 
+  // Key 存储位置开关
+  const rememberBox = document.getElementById("rememberKeys");
+  if (rememberBox) {
+    rememberBox.checked = s.rememberKeys !== false;
+    rememberBox.addEventListener("change", () => {
+      const cur = loadSettings();
+      cur.rememberKeys = rememberBox.checked;
+      saveSettings(cur);
+      saveKeys(loadKeys(), cur.rememberKeys);
+      toast(cur.rememberKeys ? "Key 将保存在本机浏览器" : "Key 仅保留在本次会话");
+    });
+  }
+
+  // 默认强度高亮
+  const defaultIntensityBtn = document.querySelector('#intensityGroup [data-intensity="' + currentIntensity + '"]');
+  if (defaultIntensityBtn) defaultIntensityBtn.classList.add("active");
+
   // 渲染 header 状态
-  renderHeader();
   renderKeyList();
   updateHeaderInfo();
+  checkProxyHealth();
+  initFirstRunNotice();
 });
+
+const NOTICE_FLAG = "aigc_notice_v21";
+
+function initFirstRunNotice() {
+  const el = document.getElementById("firstRunNotice");
+  if (!el) return;
+  let seen = false;
+  try { seen = localStorage.getItem(NOTICE_FLAG) === "1"; } catch { /* 隐私模式 */ }
+  el.style.display = seen ? "none" : "flex";
+}
+
+function dismissFirstRunNotice() {
+  try { localStorage.setItem(NOTICE_FLAG, "1"); } catch { /* 隐私模式 */ }
+  const el = document.getElementById("firstRunNotice");
+  if (el) el.style.display = "none";
+}
+
+async function checkProxyHealth() {
+  const el = document.getElementById("proxyStatus");
+  if (!el) return;
+  try {
+    const resp = await fetch("/api/health", { cache: "no-store" });
+    const data = await resp.json();
+    const version = String((data && data.version) || "?");
+    if (data && data.ok && version.startsWith(PROXY_VERSION_EXPECTED)) {
+      el.innerHTML = `<span class="status-dot ok"></span>代理 v${escapeHtml(version)}`;
+    } else {
+      el.innerHTML = `<span class="status-dot err"></span>代理版本过旧 v${escapeHtml(version)}`;
+    }
+  } catch {
+    el.innerHTML = '<span class="status-dot err"></span>代理未就绪';
+  }
+}
 
 // ==================== Header ====================
 function updateHeaderInfo() {
@@ -667,13 +811,15 @@ function delCustomModel(id) {
 function renderKeyList() {
   const s = loadSettings();
   const container = document.getElementById("keyList");
+  const keys = loadKeys();
 
-  if (s.keys.length === 0) {
+  if (keys.length === 0) {
     container.innerHTML = '<div class="key-empty">还没有添加 API Key<br>在下方输入并点击"添加"</div>';
     return;
   }
 
-  container.innerHTML = s.keys.map(k => {
+  const storageNote = s.rememberKeys === false ? "（仅本次会话）" : "";
+  container.innerHTML = keys.map(k => {
     const active = k.id === s.activeKeyId;
     const name = k.name || "未命名";
     const preview = k.key.slice(0, 10) + "…" + k.key.slice(-4);
@@ -683,7 +829,7 @@ function renderKeyList() {
         <input type="radio" class="key-radio" id="${radioId}" name="activeKey"
           ${active ? "checked" : ""} onchange="setActiveKey('${k.id}')">
         <div class="key-info">
-          <div class="key-name">${escapeHtml(name)}</div>
+          <div class="key-name">${escapeHtml(name)}<span style="color:var(--text-secondary);font-size:11px;font-weight:400;margin-left:4px;">${storageNote}</span></div>
           <div class="key-preview">${escapeHtml(preview)}</div>
         </div>
         <button class="key-delete" title="删除" onclick="deleteKey('${k.id}')">🗑</button>
@@ -699,16 +845,19 @@ function addApiKey() {
   const key = keyInput.value.trim();
 
   if (!key) return toast("请输入 API Key");
+  if (key.length > 512) return toast("API Key 长度异常");
 
   const s = loadSettings();
+  const keys = loadKeys();
   const newKey = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    name: name || ("Key " + (s.keys.length + 1)),
+    name: name || ("Key " + (keys.length + 1)),
     key
   };
 
-  s.keys.push(newKey);
+  keys.push(newKey);
   if (!s.activeKeyId) s.activeKeyId = newKey.id;
+  saveKeys(keys, s.rememberKeys !== false);
   saveSettings(s);
 
   nameInput.value = "";
@@ -730,10 +879,11 @@ function deleteKey(id) {
   if (!confirm("确定删除这个 API Key？")) return;
 
   const s = loadSettings();
-  s.keys = s.keys.filter(k => k.id !== id);
+  const keys = loadKeys().filter(k => k.id !== id);
   if (s.activeKeyId === id) {
-    s.activeKeyId = s.keys.length > 0 ? s.keys[0].id : null;
+    s.activeKeyId = keys.length > 0 ? keys[0].id : null;
   }
+  saveKeys(keys, s.rememberKeys !== false);
   saveSettings(s);
   renderKeyList();
   updateHeaderInfo();
@@ -749,9 +899,7 @@ function saveModel() {
 
 // ==================== Rewrite ====================
 async function startRewrite() {
-  const s = loadSettings();
   const activeKey = getActiveKey();
-
   if (!activeKey) {
     toast("请先配置 API Key（点击 ⚙）");
     openSettings();
@@ -759,82 +907,16 @@ async function startRewrite() {
   }
 
   originalText = document.getElementById("inputText").value.trim();
-  if (!currentIntensity) return toast("请先选择改写强度");
   if (!originalText) return toast("请先输入待改写文本");
+  if (!currentIntensity) currentIntensity = "normal";
 
-  if (originalText.length > 2000 && !confirm(`原文 ${originalText.length} 字，超过 2000 字改写效果可能不佳，降低 AIGC 率的效果也会打折扣。\n\n建议分段改写，每次 500-2000 字最佳。\n\n是否继续？`)) {
-    return;
+  if (originalText.length > 2000) {
+    const est = Math.ceil(originalText.length / BATCH_CHUNK_SIZE);
+    if (!confirm(`原文 ${originalText.length} 字，将自动分段改写（每段约 ${BATCH_CHUNK_SIZE} 字，预计 ${est} 段，段间会带上文以保持指代一致）。\n\n段数较多时耗时较长，是否继续？`)) return;
+    return batchRewrite(activeKey.key);
   }
 
-  const btn = document.getElementById("rewriteBtn");
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>改写中…';
-
-  const outputEl = document.getElementById("outputArea");
-  outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + s.model + ' 改写…</span>';
-
-  const MAX_RETRIES = 2;
-  let lastError = null;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    if (attempt > 0) {
-      outputEl.innerHTML = `<span style="color:var(--warning)">⏳ 第 ${attempt + 1} 次尝试改写…</span>`;
-      await new Promise(r => setTimeout(r, 1500));
-    }
-
-    try {
-      const strategy = STRATEGIES[currentStrategy];
-      const resp = await fetch("/api/rewrite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey: activeKey.key,
-          model: s.model,
-          temperature: INTENSITY[currentIntensity].temperature + (attempt > 0 ? attempt * 0.1 : 0),
-          max_tokens: Math.max(4096, Math.ceil(originalText.length * INTENSITY[currentIntensity].maxMultiplier)),
-          messages: [
-            { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
-            { role: "user", content: strategy.prompt + "\n\n" + originalText }
-          ]
-        })
-      });
-
-      const data = await resp.json();
-
-      if (!resp.ok || data.error) {
-        throw new Error(data.error?.message || data.error || "请求失败");
-      }
-
-      rewrittenText = data.choices?.[0]?.message?.content || "";
-      if (!rewrittenText) {
-        lastError = "API 返回为空";
-        continue;
-      }
-
-      rewrittenText = rewrittenText.replace(/^```[\s\S]*?\n/, "").replace(/\n```$/, "").trim();
-
-      if (rewrittenText.length < originalText.length * 0.3) {
-        lastError = "返回内容过短";
-        continue;
-      }
-
-      outputEl.textContent = rewrittenText;
-      document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
-      document.getElementById("viewTabs").style.display = "flex";
-      switchView("result");
-      toast(attempt > 0 ? "✅ 改写完成（重试后成功）" : "✅ 改写完成");
-      btn.disabled = false;
-      btn.innerHTML = "🔄 开始改写";
-      return;
-    } catch (err) {
-      lastError = err.message;
-    }
-  }
-
-  outputEl.innerHTML = `<span style="color:var(--danger)">❌ 改写失败（已重试 ${MAX_RETRIES} 次）：${escapeHtml(lastError)}<br><br>建议：缩短文本至 1500 字以内或切换模型。</span>`;
-  toast("改写失败：" + lastError);
-  btn.disabled = false;
-  btn.innerHTML = "🔄 开始改写";
+  return singleRewrite(activeKey.key);
 }
 
 // ==================== Export ====================
@@ -848,8 +930,11 @@ function copyResult() {
 
 function downloadResult() {
   if (!rewrittenText) return toast("没有可下载的内容");
+  const s = loadSettings();
+  const cm = getCustomModel(s.model);
   const strategyName = STRATEGIES[currentStrategy].name;
-  const md = `# 论文改写结果\n\n**改写策略**: ${strategyName}\n**时间**: ${new Date().toLocaleString()}\n\n---\n\n## 原文\n\n${originalText}\n\n---\n\n## 改写后\n\n${rewrittenText}\n`;
+  const intensityName = (INTENSITY[currentIntensity] || INTENSITY.normal).label;
+  const md = `# 论文改写结果\n\n**改写策略**: ${strategyName}\n**改写强度**: ${intensityName}\n**模型**: ${cm ? cm.name + " (" + cm.modelId + ")" : s.model}\n**时间**: ${new Date().toLocaleString()}\n**原文长度**: ${originalText.length} 字 / **改写长度**: ${rewrittenText.length} 字\n\n> 本结果由 AI 改写生成，仅供写作参考，使用前请自行核对事实与学术规范要求。\n\n---\n\n## 原文\n\n${originalText}\n\n---\n\n## 改写后\n\n${rewrittenText}\n`;
   const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -939,9 +1024,14 @@ function splitSentences(text) {
   }, []).filter(s => s.trim());
 }
 
+const DIFF_CELL_LIMIT = 250000;
+
 function diffWords(oldStr, newStr) {
   const oWords = tokenize(oldStr);
   const nWords = tokenize(newStr);
+  if (oWords.length * nWords.length > DIFF_CELL_LIMIT) {
+    return [escapeHtml(oldStr), escapeHtml(newStr)];
+  }
   const lcs = computeLCS(oWords, nWords);
 
   let oIdx = 0, nIdx = 0, lIdx = 0;
@@ -1052,24 +1142,45 @@ function closeHistory(e) {
 }
 
 // ==================== History ====================
+const HISTORY_KEY = "aigc_history";
+const HISTORY_MAX_RECORDS = 50;
+const HISTORY_MAX_CHARS = 3500000;
+
+function getHistory() {
+  try {
+    const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
+
+function persistHistory(records) {
+  let list = records;
+  while (list.length && JSON.stringify(list).length > HISTORY_MAX_CHARS) {
+    list = list.slice(0, list.length - 1);
+  }
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+  } catch {
+    toast("浏览器存储已满，历史记录未保存");
+    return list;
+  }
+  return list;
+}
+
 function saveHistory() {
   if (!originalText || !rewrittenText) return;
   const records = getHistory();
   records.unshift({
+    v: 2,
     time: new Date().toLocaleString(),
     strategy: STRATEGIES[currentStrategy].name,
     intensity: currentIntensity,
-    original: originalText.substring(0, 200),
+    original: originalText,
     result: rewrittenText,
     resultPreview: rewrittenText.substring(0, 200),
   });
-  if (records.length > 50) records.length = 50;
-  localStorage.setItem("aigc_history", JSON.stringify(records));
-}
-
-function getHistory() {
-  try { return JSON.parse(localStorage.getItem("aigc_history")) || []; }
-  catch { return []; }
+  if (records.length > HISTORY_MAX_RECORDS) records.length = HISTORY_MAX_RECORDS;
+  persistHistory(records);
 }
 
 function renderHistoryPanel() {
@@ -1082,11 +1193,11 @@ function renderHistoryPanel() {
   el.innerHTML = records.map((r, i) => `
     <div class="history-item">
       <div class="history-item-meta">
-        <span class="history-item-time">${r.time}</span>
-        <span class="history-item-tag">${r.strategy} · ${r.intensity === "heavy" ? "重度" : "普通"}</span>
+        <span class="history-item-time">${escapeHtml(String(r.time || ""))}</span>
+        <span class="history-item-tag">${escapeHtml(String(r.strategy || ""))} · ${r.intensity === "heavy" ? "重度" : "普通"} · ${String(r.original || "").length} 字</span>
       </div>
-      <div class="history-item-orig">原文：${escapeHtml(r.original)}…</div>
-      <div class="history-item-result">改写：${escapeHtml(r.resultPreview)}…</div>
+      <div class="history-item-orig">原文：${escapeHtml((r.original || "").substring(0, 200))}…</div>
+      <div class="history-item-result">改写：${escapeHtml(r.resultPreview || (r.result || "").substring(0, 200))}…</div>
       <div class="history-item-actions">
         <button class="btn btn-ghost btn-sm" onclick="viewHistory(${i})">👁 查看</button>
         <button class="btn btn-ghost btn-sm" onclick="copyHistory(${i})">📋 复制</button>
@@ -1096,37 +1207,33 @@ function renderHistoryPanel() {
   `).join("");
 }
 
-function renderHistoryList() {
-  const el = document.getElementById("historyList");
-  if (!el) return;
-  renderHistoryPanel();
-  el.innerHTML = document.getElementById("historyPanelList").innerHTML;
-}
-
 function viewHistory(i) {
   const r = getHistory()[i];
   if (!r) return;
-  originalText = r.original;
-  rewrittenText = r.result;
-  document.getElementById("inputText").value = r.original;
-  document.getElementById("inputCount").textContent = r.original.length + " 字";
-  document.getElementById("outputArea").textContent = r.result;
-  document.getElementById("outputCount").textContent = r.result.length + " 字";
+  originalText = r.original || "";
+  rewrittenText = r.result || "";
+  document.getElementById("inputText").value = originalText;
+  document.getElementById("inputCount").textContent = originalText.length + " 字";
+  document.getElementById("outputArea").textContent = rewrittenText;
+  document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
   document.getElementById("viewTabs").style.display = "flex";
   switchView("result");
   closeHistory();
+  if (r.v !== 2) {
+    toast("旧版记录：原文可能被截断，不建议二次改写");
+  }
 }
 
 function copyHistory(i) {
   const r = getHistory()[i];
   if (!r) return;
-  navigator.clipboard.writeText(r.result).then(() => toast("已复制"));
+  navigator.clipboard.writeText(r.result || "").then(() => toast("已复制"));
 }
 
 function deleteHistory(i) {
   const records = getHistory();
   records.splice(i, 1);
-  localStorage.setItem("aigc_history", JSON.stringify(records));
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(records));
   renderHistoryPanel();
 }
 
@@ -1142,8 +1249,9 @@ function openDetect() {
   if (!rewrittenText) return toast("请先完成改写");
   document.getElementById("detectOverlay").classList.add("show");
   document.getElementById("detectPanelBody").innerHTML = `
-    <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">
-      点击下方按钮开始检测 AI 痕迹<br><br>
+    <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;line-height:1.8;">
+      由大模型对改写结果逐句打分，取前 20 句分析。<br>
+      这不是权威查重/AIGC 检测，仅用于自查参考。<br><br>
       <button class="btn btn-primary btn-sm" onclick="runDetect()">🔍 开始检测</button>
     </div>
   `;
@@ -1164,7 +1272,8 @@ async function runDetect() {
   panel.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-secondary);"><span class="spinner" style="border-color:var(--accent);border-top-color:transparent;"></span> 正在逐句分析…</div>';
 
   const s = loadSettings();
-  const detectModel = s.model || "deepseek-v4-pro";
+  const cm = getCustomModel(s.model);
+  const detectModel = cm ? cm.modelId : (s.model || "deepseek-v4-pro");
   const sentences = rewrittenText.split(/([。；!?！？\n])/g).reduce((acc, cur, i, arr) => {
     if (i % 2 === 0 && cur.trim()) acc.push(cur.trim());
     else if (i % 2 === 1 && acc.length > 0) acc[acc.length - 1] += cur;
@@ -1176,19 +1285,22 @@ async function runDetect() {
   const textToSend = toAnalyze.map((s, i) => `[${i}] ${s}`).join("\n");
 
   try {
+    const detectBody = {
+      apiKey,
+      model: detectModel,
+      temperature: 0.2,
+      max_tokens: 1024,
+      messages: [
+        { role: "system", content: "你是AI文本检测专家。只返回JSON，不要其他内容。" },
+        { role: "user", content: `分析以下文本（每句已编号），逐句判断AI痕迹程度。返回JSON：{"totalScore":0-100,"level":"低/中/高","sentences":[{"idx":编号,"score":0-100,"highlight":true/false}]}\n\n评分：0-30人类，31-60可能AI辅助，61-100高AI痕迹。highlight=true表示该句AI痕迹明显需标注。\n\n文本：\n${textToSend}` }
+      ]
+    };
+    if (cm) { detectBody.baseUrl = cm.url; detectBody.authType = "bearer"; }
+
     const resp = await fetch("/api/rewrite", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        apiKey,
-        model: detectModel,
-        temperature: 0.2,
-        max_tokens: 1024,
-        messages: [
-          { role: "system", content: "你是AI文本检测专家。只返回JSON，不要其他内容。" },
-          { role: "user", content: `分析以下文本（每句已编号），逐句判断AI痕迹程度。返回JSON：{"totalScore":0-100,"level":"低/中/高","sentences":[{"idx":编号,"score":0-100,"highlight":true/false}]}\n\n评分：0-30人类，31-60可能AI辅助，61-100高AI痕迹。highlight=true表示该句AI痕迹明显需标注。\n\n文本：\n${textToSend}` }
-        ]
-      })
+      body: JSON.stringify(detectBody)
     });
 
     const data = await resp.json();
@@ -1226,11 +1338,14 @@ async function runDetect() {
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-size:40px;font-weight:700;color:${c};">${result.totalScore}</div>
         <span style="background:${bg};color:${c};padding:4px 16px;border-radius:14px;font-weight:600;">${result.level}风险</span>
-        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">AI 概率评分 / 100</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">模型自评的 AI 痕迹概率 / 100（非权威检测）</div>
       </div>
       <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
         <span style="background:#fee2e2;padding:1px 6px;border-radius:3px;">红色</span>=高风险句
         <span style="background:#fef3c7;padding:1px 6px;border-radius:3px;margin-left:6px;">黄色</span>=中风险句
+      </div>
+      <div style="font-size:11px;color:var(--text-secondary);background:var(--bg);border-radius:6px;padding:8px;margin-bottom:12px;line-height:1.6;">
+        由「${escapeHtml(detectModel)}」自行打分，同一模型评价自己的改写结果会偏乐观；学校/期刊使用的检测系统与本结果无关联，请勿以此作为提交依据。
       </div>
     `;
 
@@ -1257,36 +1372,20 @@ async function runDetect() {
   }
 }
 
-// ==================== Modified startRewrite ====================
-const originalStartRewrite = startRewrite;
-startRewrite = async function() {
-  const apiKey = (getActiveKey() || {}).key;
-  if (!apiKey) return toast("请先配置 API Key");
-
-  originalText = document.getElementById("inputText").value.trim();
-  if (!currentIntensity) return toast("请先选择改写强度");
-  if (!originalText) return toast("请先输入待改写文本");
-
-  // Batch mode for long text
-  if (originalText.length > 2000) {
-    if (!confirm(`原文 ${originalText.length} 字，超过 2000 字将自动分段改写（每段 ≤500 字），降低 AIGC 率的效果会更均匀。\n\n是否继续？`)) return;
-    return batchRewrite(apiKey);
-  }
-
-  // Single segment (original flow)
-  return singleRewrite(apiKey);
-};
-
 async function singleRewrite(apiKey) {
   const s = loadSettings();
   const btn = document.getElementById("rewriteBtn");
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>改写中…';
   const outputEl = document.getElementById("outputArea");
-  outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + s.model + ' 改写…</span>';
-  document.getElementById("progressWrap").style.display = "none";
 
-  const result = await doRewrite(apiKey, s, originalText, 0);
-  btn.disabled = false; btn.innerHTML = "🔄 开始改写";
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>改写中…';
+  document.getElementById("progressWrap").style.display = "none";
+  document.getElementById("viewTabs").style.display = "none";
+  outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + escapeHtml(s.model) + ' 改写…</span>';
+
+  const result = await doRewrite(apiKey, s, originalText, true, "");
+  btn.disabled = false;
+  btn.innerHTML = "🔄 开始改写";
 
   if (result.success) {
     rewrittenText = result.text;
@@ -1297,78 +1396,118 @@ async function singleRewrite(apiKey) {
     saveHistory();
     toast("✅ 改写完成");
   } else {
-    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(result.error)}</span>`;
+    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(result.error)}<br><br>建议：缩短文本至 1500 字以内、切换模型，或检查 API Key 与余额。</span>`;
   }
+}
+
+function splitIntoChunks(text, maxLen) {
+  const chunks = [];
+  const paragraphs = text.split(/\n+/).filter(p => p.trim());
+
+  for (const p of paragraphs) {
+    const sentences = p.split(/(?<=[。！？!?；;])/).filter(s => s.trim());
+    let cur = "";
+    for (const s of sentences) {
+      if (s.length > maxLen) {
+        if (cur) { chunks.push(cur.trim()); cur = ""; }
+        for (let i = 0; i < s.length; i += maxLen) chunks.push(s.slice(i, i + maxLen).trim());
+        continue;
+      }
+      if (cur && (cur.length + s.length) > maxLen) {
+        chunks.push(cur.trim());
+        cur = s;
+      } else {
+        cur += s;
+      }
+    }
+    if (cur.trim()) chunks.push(cur.trim());
+  }
+
+  return chunks.filter(c => c.length > 0);
 }
 
 async function batchRewrite(apiKey) {
   const s = loadSettings();
   const btn = document.getElementById("rewriteBtn");
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>分段改写中…';
-  document.getElementById("outputArea").textContent = "";
-  document.getElementById("progressWrap").style.display = "";
+  const outputEl = document.getElementById("outputArea");
+  const progressWrap = document.getElementById("progressWrap");
+  const progressText = document.getElementById("progressText");
+  const progressFill = document.getElementById("progressFill");
 
-  // Split into paragraphs, then chunk
-  const paragraphs = originalText.split(/\n+/).filter(p => p.trim());
-  const chunks = [];
-  let current = "";
-  for (const p of paragraphs) {
-    if (current && (current + p).length > 500) {
-      chunks.push(current.trim());
-      current = p;
-    } else {
-      current += (current ? "\n" : "") + p;
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
+  const chunks = splitIntoChunks(originalText, BATCH_CHUNK_SIZE);
+  if (!chunks.length) return toast("没有可改写的内容");
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>分段改写中…';
+  outputEl.textContent = "";
+  document.getElementById("outputCount").textContent = "0 字";
+  document.getElementById("viewTabs").style.display = "none";
+  progressWrap.style.display = "";
+  progressFill.style.width = "0%";
+  progressText.textContent = `共 ${chunks.length} 段，正在改写第 1 段…`;
 
   const results = [];
-  for (let i = 0; i < chunks.length; i++) {
-    const el = document.getElementById("progressText");
-    el.textContent = `正在改写第 ${i + 1}/${chunks.length} 段…`;
-    document.getElementById("progressFill").style.width = ((i / chunks.length) * 100) + "%";
 
-    const result = await doRewrite(apiKey, s, chunks[i], i);
+  for (let i = 0; i < chunks.length; i++) {
+    progressText.textContent = `正在改写第 ${i + 1}/${chunks.length} 段…`;
+    progressFill.style.width = ((i / chunks.length) * 100).toFixed(1) + "%";
+
+    const context = i > 0 ? chunks[i - 1].slice(-BATCH_CONTEXT_CHARS) : "";
+    const result = await doRewrite(apiKey, s, chunks[i], false, context);
+
     if (!result.success) {
-      el.textContent = `❌ 第 ${i + 1} 段失败：${result.error}`;
-      btn.disabled = false; btn.innerHTML = "🔄 开始改写";
+      progressText.textContent = `❌ 第 ${i + 1}/${chunks.length} 段失败：${result.error}`;
+      if (results.length) {
+        rewrittenText = results.join("\n\n");
+        outputEl.textContent = rewrittenText;
+        document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
+        document.getElementById("viewTabs").style.display = "flex";
+        saveHistory();
+      }
+      btn.disabled = false;
+      btn.innerHTML = "🔄 开始改写";
       return;
     }
+
     results.push(result.text);
+    outputEl.textContent = results.join("\n\n");
+    document.getElementById("outputCount").textContent = outputEl.textContent.length + " 字";
   }
 
-  document.getElementById("progressFill").style.width = "100%";
-  document.getElementById("progressText").textContent = "✅ 全部改写完成！";
-
+  progressFill.style.width = "100%";
+  progressText.textContent = `✅ 全部完成（共 ${chunks.length} 段）`;
   rewrittenText = results.join("\n\n");
-  document.getElementById("outputArea").textContent = rewrittenText;
+  outputEl.textContent = rewrittenText;
   document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
   document.getElementById("viewTabs").style.display = "flex";
   switchView("result");
   saveHistory();
-  document.getElementById("progressWrap").style.display = "none";
-  btn.disabled = false; btn.innerHTML = "🔄 开始改写";
+  setTimeout(() => { progressWrap.style.display = "none"; }, 1500);
+  btn.disabled = false;
+  btn.innerHTML = "🔄 开始改写";
+  toast("✅ 改写完成");
 }
 
-async function doRewrite(apiKey, s, text, attempt) {
+async function doRewrite(apiKey, s, text, animate, context) {
   const MAX_RETRIES = 2;
+  const strategy = STRATEGIES[currentStrategy];
+  const intensity = INTENSITY[currentIntensity] || INTENSITY.normal;
   let lastError = null;
 
   for (let retry = 0; retry <= MAX_RETRIES; retry++) {
     try {
-      const strategy = STRATEGIES[currentStrategy];
       const cm = getCustomModel(s.model);
       const reqBody = {
         apiKey,
         model: cm ? cm.modelId : s.model,
-        temperature: INTENSITY[currentIntensity].temperature + (retry > 0 ? retry * 0.1 : 0),
-        max_tokens: Math.max(4096, Math.ceil(text.length * INTENSITY[currentIntensity].maxMultiplier)),
-        messages: [
-          { role: "system", content: "你只输出改写后的文本，不添加任何前缀、后缀或解释。" },
-          { role: "user", content: strategy.prompt + "\n\n" + text }
-        ]
+        temperature: intensity.temperature + (retry > 0 ? retry * 0.1 : 0),
+        max_tokens: estimateMaxTokens(text, currentIntensity),
+        messages: buildMessages(strategy, text, context || "")
       };
-      if (cm) { reqBody.baseUrl = cm.url; reqBody.authType = "bearer"; }
+      if (cm) {
+        reqBody.baseUrl = cm.url;
+        reqBody.authType = "bearer";
+      }
 
       const resp = await fetch("/api/rewrite", {
         method: "POST",
@@ -1376,23 +1515,30 @@ async function doRewrite(apiKey, s, text, attempt) {
         body: JSON.stringify(reqBody)
       });
 
-      const rawText = await resp.text();
-      if (!rawText) throw new Error("服务器返回空响应");
+      const raw = await resp.text();
+      if (!raw) throw new Error("服务器返回空响应");
+
       let data;
-      try { data = JSON.parse(rawText); } catch {
-        throw new Error("响应格式异常: " + rawText.substring(0, 100));
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new Error("响应格式异常: " + raw.substring(0, 120));
       }
-      if (!resp.ok || data.error) throw new Error(data.error?.message || data.error || "请求失败");
 
-      let result = data.choices?.[0]?.message?.content || "";
+      if (!resp.ok || data.error) {
+        const rawMsg = data.error && (data.error.message || data.error);
+        const msg = rawMsg ? (typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg)) : `HTTP ${resp.status}`;
+        throw new Error(msg);
+      }
+
+      const choice = (data.choices && data.choices[0] && data.choices[0].message) || {};
+      let result = choice.content || "";
       if (!result) { lastError = "API 返回为空"; continue; }
-      result = result.replace(/^```[\s\S]*?\n/, "").replace(/\n```$/, "").trim();
 
+      result = result.replace(/^```[a-zA-Z]*\s*\n/, "").replace(/\n```\s*$/, "").trim();
       if (result.length < text.length * 0.3) { lastError = "返回过短"; continue; }
 
-      // Typewriter effect
-      await typewriterEffect(document.getElementById("outputArea"), result);
-
+      if (animate) await typewriterEffect(document.getElementById("outputArea"), result);
       return { success: true, text: result };
     } catch (err) {
       lastError = err.message;
@@ -1404,17 +1550,25 @@ async function doRewrite(apiKey, s, text, attempt) {
 }
 
 async function typewriterEffect(el, text) {
-  const speed = text.length > 1000 ? 8 : 15; // ms per chunk
-  const chunkSize = text.length > 1000 ? 3 : 2;
+  const total = text.length;
+  if (!total) return;
+  const counter = document.getElementById("outputCount");
+  const MAX_DURATION = 2500;
+  const speed = 16;
+  const chunkSize = Math.max(2, Math.ceil(total / (MAX_DURATION / speed)));
   let i = 0;
   el.textContent = "";
 
   return new Promise(resolve => {
     function tick() {
-      if (i >= text.length) { resolve(); return; }
-      const end = Math.min(i + chunkSize, text.length);
+      if (i >= total) {
+        if (counter) counter.textContent = total + " 字";
+        resolve();
+        return;
+      }
+      const end = Math.min(i + chunkSize, total);
       el.textContent = text.substring(0, end);
-      document.getElementById("outputCount").textContent = end + " 字";
+      if (counter) counter.textContent = end + " 字";
       i = end;
       setTimeout(tick, speed);
     }
@@ -1423,7 +1577,10 @@ async function typewriterEffect(el, text) {
 }
 
 // ==================== Announcement ====================
-const ANN_URL = "https://raw.githubusercontent.com/3188575612-creator/reduce-aigc/main/announcement.json";
+const ANN_URLS = [
+  "/announcement.json",
+  "https://raw.githubusercontent.com/3188575612-creator/reduce-aigc/main/announcement.json"
+];
 
 function openAnnounce() {
   document.getElementById("announceOverlay").classList.add("show");
@@ -1437,24 +1594,40 @@ function closeAnnounce(e) {
 
 async function loadAnnounce() {
   const body = document.getElementById("announceBody");
-  try {
-    const resp = await fetch(ANN_URL + "?t=" + Date.now());
-    if (!resp.ok) throw new Error("加载失败");
-    const content = await resp.json();
-    renderAnnounce(content);
-  } catch {
-    body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text-secondary);">
+  body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-secondary);">⏳ 加载中…</div>';
+  for (const url of ANN_URLS) {
+    try {
+      const resp = await fetch(url + "?t=" + Date.now(), { cache: "no-store" });
+      if (!resp.ok) continue;
+      const content = await resp.json();
+      if (hasAnnounce(content)) {
+        renderAnnounce(content);
+        return;
+      }
+    } catch { /* 试下一个源 */ }
+  }
+  body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text-secondary);">
       <div style="font-size:40px;margin-bottom:12px;">📢</div>
       <div>暂无公告</div>
     </div>`;
-  }
+}
+
+function hasAnnounce(content) {
+  if (!content || typeof content !== "object") return false;
+  if (typeof content.text === "string" && content.text.trim()) return true;
+  return Array.isArray(content.items) && content.items.some(it => it && typeof it.text === "string" && it.text.trim());
 }
 
 function renderAnnounce(content) {
-  document.getElementById("announceBody").innerHTML = `
-    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">${content.time || ""}</div>
-    <div style="font-size:14px;line-height:1.8;white-space:pre-wrap;">${escapeHtml(content.text || "")}</div>
-  `;
+  const items = Array.isArray(content.items) && content.items.length
+    ? content.items.filter(it => it && typeof it.text === "string" && it.text.trim())
+    : [{ time: content.time, text: content.text }];
+
+  document.getElementById("announceBody").innerHTML = items.map((it, i) => `
+    ${i ? '<div style="border-top:1px solid var(--border);margin:16px 0;"></div>' : ''}
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${escapeHtml(String(it.time || ""))}</div>
+    <div style="font-size:14px;line-height:1.8;white-space:pre-wrap;">${escapeHtml(it.text)}</div>
+  `).join("");
 }
 </script>
 </body>

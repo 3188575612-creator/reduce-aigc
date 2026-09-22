@@ -1,0 +1,14 @@
+.git/
+.gitignore
+.assetsignore
+.wrangler/
+.workbuddy/
+output/
+node_modules/
+server.js
+worker.js
+wrangler.jsonc
+package.json
+README.md
+functions/
+scripts/
