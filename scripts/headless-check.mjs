@@ -155,14 +155,39 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.3", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.3\.\d+/.test(v)],
+    ["代理健康检查显示 v3.4", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.4\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
       (v) => v === "sentence-shuffle"],
-    ["关键 DOM 齐全", '["rememberKeys","uploadZone","inputText","rewriteBtn","proxyStatus","headerInfo","progressWrap","viewTabs","compareArea","detectPanelBody"].filter(id=>!document.getElementById(id)).join(",")',
+    ["关键 DOM 齐全", '["rememberKeys","saveDraft","inputCard","pickFileBtn","uploadHint","inputText","rewriteBtn","proxyStatus","headerInfo","progressWrap","viewTabs","compareArea","detectPanelBody","resultMeta","qualityHint"].filter(id=>!document.getElementById(id)).join(",")',
       (v) => v === ""],
+    ["左右两栏逐层对齐（针对「布局不对称」的回归断言）", `(() => {
+      const rect = (el) => { const b = el.getBoundingClientRect(); return { t: Math.round(b.top), h: Math.round(b.height), b: Math.round(b.bottom) }; };
+      const cards = [...document.querySelectorAll(".main > .card.panel")];
+      if (cards.length !== 2) return JSON.stringify({ cards: cards.length });
+      const leftBtn = cards[0].querySelector(".foot-actions .btn");
+      const rightBtn = cards[1].querySelector(".foot-actions .btn");
+      const leftNote = cards[0].querySelector(".foot-note");
+      const rightNote = cards[1].querySelector(".foot-note");
+      return JSON.stringify({
+        cards: cards.length,
+        cardTop: Math.abs(rect(cards[0]).t - rect(cards[1]).t),
+        cardHeight: Math.abs(rect(cards[0]).h - rect(cards[1]).h),
+        contentTop: Math.abs(rect(document.getElementById("inputText")).t - rect(document.getElementById("outputArea")).t),
+        contentHeight: Math.abs(rect(document.getElementById("inputText")).h - rect(document.getElementById("outputArea")).h),
+        toolsTop: Math.abs(rect(cards[0].querySelector(".panel-tools")).t - rect(cards[1].querySelector(".panel-tools")).t),
+        noteTop: Math.abs(rect(leftNote).t - rect(rightNote).t),
+        footBtnBottom: Math.abs(rect(leftBtn).b - rect(rightBtn).b)
+      });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        if (o.cards !== 2) return false;
+        return ["cardTop", "cardHeight", "contentTop", "contentHeight", "toolsTop", "noteTop", "footBtnBottom"]
+          .every((k) => o[k] <= 1);
+      }],
     ["核心函数均已定义", '["startRewrite","singleRewrite","batchRewrite","doRewrite","splitIntoChunks","estimateMaxTokens","buildMessages","checkProxyHealth","migrateLegacyKeys","testConnection"].filter(f=>typeof window[f]!=="function").join(",")',
       (v) => v === ""],
     ["模型测试入口存在且未触发真实请求", '(() => { const el = document.getElementById("testResult"); const btn = document.querySelector(\'[onclick="testConnection()"]\'); return JSON.stringify({ hasSlot: !!el, hasBtn: !!btn, idle: getComputedStyle(el).display !== "none" }); })()',

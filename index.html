@@ -305,20 +305,21 @@
   /* ============================================================
      输入 / 输出
      ============================================================ */
-  .upload-zone {
-    border: 1px dashed var(--border); border-radius: var(--r-md);
-    padding: 12px; margin-bottom: 12px;
-    text-align: center; cursor: pointer;
-    color: var(--text-tertiary); font-size: 12.5px;
-    transition: border-color .18s ease, background .18s ease, color .18s ease;
+  /* 五层骨架：标题 / 工具行 / 内容区 / 底部行 —— 左右两栏逐层对齐、内容区等高 */
+  .card.panel { min-height: 580px; }
+  .panel-tools {
+    display: flex; align-items: center; gap: 10px;
+    height: 36px; margin-bottom: 12px;
   }
-  .upload-zone:hover, .upload-zone.drag-over {
-    border-color: var(--accent); background: var(--accent-light); color: var(--accent);
+  .tools-note { font-size: 11.5px; color: var(--text-tertiary); }
+  .card.panel.drop-active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
   .input-area, .output-area, .compare-area {
     width: 100%;
-    height: clamp(340px, 50vh, 540px);
+    flex: 1 1 auto; min-height: 240px;
     padding: 16px 18px;
     border: 1px solid var(--border);
     border-radius: var(--r-md);
@@ -337,16 +338,16 @@
 
   /* 结果视图切换：分段控件 */
   .view-tabs {
-    display: inline-flex; gap: 2px; padding: 3px; margin-bottom: 12px;
+    display: inline-flex; gap: 2px; padding: 2px;
     border-radius: var(--r-full);
     background: var(--field-bg);
     border: 1px solid var(--glass-hairline);
     align-self: flex-start;
   }
   .view-tab {
-    padding: 6px 14px; border: 1px solid transparent; border-radius: var(--r-full);
+    padding: 5px 12px; border: 1px solid transparent; border-radius: var(--r-full);
     background: transparent; cursor: pointer;
-    font-size: 12px; font-weight: 500; font-family: inherit;
+    font-size: 12px; font-weight: 500; font-family: inherit; line-height: 1.4;
     color: var(--text-secondary);
     transition: background .16s ease, color .16s ease, box-shadow .16s ease;
   }
@@ -374,7 +375,7 @@
   /* ============================================================
      质量自检
      ============================================================ */
-  .quality-hint { display: none; margin-top: 12px; font-size: 12px; line-height: 1.7; }
+  .quality-hint { display: none; width: 100%; font-size: 12px; line-height: 1.7; }
   .quality-hint.show { display: block; }
   .qh-item {
     padding: 9px 12px; margin-bottom: 6px;
@@ -389,7 +390,12 @@
     padding: 0 4px; border-radius: 3px; font-size: 11px;
   }
 
-  .result-actions { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; flex-wrap: wrap; }
+  .panel-foot {
+    display: flex; flex-direction: column; justify-content: flex-end; gap: 8px;
+    min-height: 64px; margin-top: 12px;
+  }
+  .foot-note { font-size: 11px; color: var(--text-tertiary); line-height: 1.6; }
+  .foot-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 
   /* ============================================================
      按钮
@@ -415,9 +421,11 @@
 
   .action-bar {
     grid-column: 1 / -1;
-    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
     padding-bottom: 8px;
   }
+  .action-buttons { display: flex; gap: 10px; align-items: center; }
+  .action-tip { font-size: 11px; color: var(--text-tertiary); }
   .btn-rewrite { padding: 13px 54px; font-size: 15px; border-radius: var(--r-lg); }
   .spinner {
     display: inline-block; width: 15px; height: 15px;
@@ -666,7 +674,8 @@
     .notice-bar { margin: 12px 16px 0; }
     .strategy-bar { align-items: flex-start; }
     .strategy-desc { margin-left: 0; flex-basis: 100%; }
-    .input-area, .output-area, .compare-area { height: clamp(260px, 42vh, 420px); }
+    .card.panel { min-height: auto; }
+    .input-area, .output-area, .compare-area { min-height: 260px; }
     .history-panel { width: 100%; }
     .history-overlay { padding: 8px; }
   }
@@ -729,60 +738,75 @@
   </div>
 
   <!-- Left: Input -->
-  <div class="card">
+  <div class="card panel" id="inputCard">
     <div class="panel-header">
       <span class="panel-title">原文输入</span>
       <span class="char-count" id="inputCount">0 字</span>
     </div>
-    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
-      <span id="uploadHint">📁 拖拽 .docx / .txt / .md 到此处，或点击上传</span>
+
+    <div class="panel-tools">
+      <button class="btn btn-ghost btn-sm" id="pickFileBtn" onclick="document.getElementById('fileInput').click()">📁 选择文件</button>
+      <span class="tools-note" id="uploadHint">也可把 .docx / .txt / .md 拖到本卡片任意位置</span>
+      <input type="file" id="fileInput" accept=".docx,.txt,.md" style="display:none" onchange="handleFile(this.files[0])">
     </div>
-    <input type="file" id="fileInput" accept=".docx,.txt,.md" style="display:none" onchange="handleFile(this.files[0])">
+
     <textarea class="input-area" id="inputText"
       placeholder="在此粘贴论文段落…&#10;&#10;建议每次 500-2000 字效果最佳；超过 2000 字会自动按段落分段改写（每段约 500 字）。"></textarea>
-    <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.6;">
-      文本会经本站代理发送至第三方大模型服务，改写结果仅供写作参考。
+
+    <div class="panel-foot">
+      <div class="foot-note">文本会经本站代理发送至第三方大模型服务，改写结果仅供写作参考。</div>
+      <div class="foot-actions">
+        <button class="btn btn-ghost btn-sm" onclick="clearAll()">🗑 清空</button>
+      </div>
     </div>
   </div>
 
   <!-- Right: Output -->
-  <div class="card" style="display:flex;flex-direction:column;">
+  <div class="card panel">
     <div class="panel-header">
       <span class="panel-title">改写结果</span>
       <span class="char-count" id="outputCount">0 字</span>
     </div>
-    <div class="view-tabs" id="viewTabs" style="display:none;">
-      <button class="view-tab active" data-view="result" onclick="switchView('result')">改写结果</button>
-      <button class="view-tab" data-view="compare" onclick="switchView('compare')">对比视图</button>
-      <button class="view-tab" data-view="original" onclick="switchView('original')">原文</button>
+
+    <div class="panel-tools">
+      <div class="view-tabs" id="viewTabs" style="display:none;">
+        <button class="view-tab active" data-view="result" onclick="switchView('result')">改写结果</button>
+        <button class="view-tab" data-view="compare" onclick="switchView('compare')">对比视图</button>
+        <button class="view-tab" data-view="original" onclick="switchView('original')">原文</button>
+      </div>
+      <span class="tools-note" id="viewHint">改写完成后可在这里切换 结果 / 对比 / 原文</span>
     </div>
+
     <div class="output-area" id="outputArea">
       <span class="output-placeholder">改写后的文本将显示在这里…</span>
     </div>
     <div class="compare-area" id="compareArea" style="display:none;">
     </div>
-    <div class="quality-hint" id="qualityHint"></div>
-    <div class="result-actions">
-      <button class="btn btn-ghost btn-sm" onclick="copyResult()">📋 复制</button>
-      <button class="btn btn-ghost btn-sm" onclick="downloadResult()">💾 下载 MD</button>
-      <button class="btn btn-ghost btn-sm" onclick="downloadWord()">📄 导出 Word</button>
-      <button class="btn btn-ghost btn-sm" onclick="polishAgain()">✨ 再降一次</button>
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="clearAll()">🗑 清空</button>
+
+    <div class="panel-foot">
+      <div class="foot-note" id="resultMeta">改写完成后这里会显示本次所用模型与强度</div>
+      <div class="foot-actions">
+        <button class="btn btn-ghost btn-sm" onclick="copyResult()">📋 复制</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadResult()">💾 下载 MD</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadWord()">📄 导出 Word</button>
+        <button class="btn btn-ghost btn-sm" onclick="polishAgain()">✨ 再降一次</button>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- Action bar -->
-<div class="action-bar" style="flex-direction:column;align-items:center;">
+<div class="action-bar">
+  <div class="quality-hint" id="qualityHint"></div>
   <div class="progress-wrap" id="progressWrap">
     <div class="progress-text" id="progressText">正在改写第 1/3 段…</div>
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
   </div>
-  <div style="display:flex;gap:10px;align-items:center;">
+  <div class="action-buttons">
     <button class="btn btn-primary btn-rewrite" id="rewriteBtn" onclick="startRewrite()">🔄 开始改写</button>
     <button class="btn btn-ghost" id="stopBtn" onclick="stopRewrite()" style="display:none;">⏹ 停止</button>
   </div>
-  <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;">快捷键：Ctrl / ⌘ + Enter 开始改写，Esc 关闭弹窗</div>
+  <div class="action-tip">快捷键：Ctrl / ⌘ + Enter 开始改写，Esc 关闭弹窗</div>
 </div>
 
 <!-- Settings Modal -->
@@ -1529,9 +1553,10 @@ async function polishAgain() {
   setInputText(originalText);
   rewrittenText = "";
   document.getElementById("outputArea").innerHTML = '<span class="output-placeholder">已把上次结果放回左侧，准备再降一次…</span>';
-  document.getElementById("viewTabs").style.display = "none";
+  showViewTabs(false);
   document.getElementById("compareArea").style.display = "none";
   hideQualityHint();
+  setResultMeta("");
   toast("已把结果作为新的原文，点「开始改写」再降一次");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -1633,10 +1658,12 @@ function clearAll() {
   document.getElementById("outputCount").textContent = "0 字";
   originalText = "";
   rewrittenText = "";
-  document.getElementById("viewTabs").style.display = "none";
+  showViewTabs(false);
   document.getElementById("compareArea").style.display = "none";
   document.getElementById("outputArea").style.display = "";
   hideQualityHint();
+  setResultMeta("");
+  setUploadHint(UPLOAD_HINT_DEFAULT);
   setRewriting(false);
 }
 
@@ -1658,6 +1685,30 @@ function escapeHtml(str) {
 // ==================== Input draft ====================
 const DRAFT_KEY = "aigc_draft";
 let draftTimer = null;
+
+// 工具行里的视图切换：显示时同步收掉占位说明，避免右栏工具行空一块
+function showViewTabs(on) {
+  const tabs = document.getElementById("viewTabs");
+  const hint = document.getElementById("viewHint");
+  if (tabs) tabs.style.display = on ? "flex" : "none";
+  if (hint) hint.style.display = on ? "none" : "";
+}
+
+function setUploadHint(text) {
+  const el = document.getElementById("uploadHint");
+  if (el) el.textContent = text;
+}
+
+// 右栏底部那行元信息：与左栏的说明行同层，保证两栏底部结构一致
+function setResultMeta(text) {
+  const el = document.getElementById("resultMeta");
+  if (el) el.textContent = text || "改写完成后这里会显示本次所用模型与强度";
+}
+
+function describeResult() {
+  const m = buildResultMeta();
+  return `${m.modelLabel} · ${m.strategyName} · ${m.intensityName}强度 · 原文 ${originalText.length} → 结果 ${rewrittenText.length} 字`;
+}
 
 function setInputText(text) {
   document.getElementById("inputText").value = text;
@@ -1901,15 +1952,21 @@ function computeLCS(a, b) {
 }
 
 // ==================== File upload ====================
+// 拖拽目标就是整张输入卡片（不再占用一块专门的虚线区，避免左右两栏底部对不齐）
+const UPLOAD_HINT_DEFAULT = "也可把 .docx / .txt / .md 拖到本卡片任意位置";
+
 (function initUpload() {
-  const zone = document.getElementById("uploadZone");
-  if (!zone) return;
-  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("drag-over"); });
-  zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
-  zone.addEventListener("drop", e => {
+  const card = document.getElementById("inputCard");
+  if (!card) return;
+  let depth = 0;
+  card.addEventListener("dragenter", (e) => { e.preventDefault(); depth += 1; card.classList.add("drop-active"); });
+  card.addEventListener("dragover", (e) => { e.preventDefault(); });
+  card.addEventListener("dragleave", () => { depth = Math.max(0, depth - 1); if (!depth) card.classList.remove("drop-active"); });
+  card.addEventListener("drop", (e) => {
     e.preventDefault();
-    zone.classList.remove("drag-over");
-    const file = e.dataTransfer.files[0];
+    depth = 0;
+    card.classList.remove("drop-active");
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
     if (file) handleFile(file);
   });
 })();
@@ -1941,7 +1998,7 @@ async function handleFile(file) {
     if (name.endsWith(".txt") || name.endsWith(".md")) {
       text = await file.text();
     } else if (name.endsWith(".docx")) {
-      document.getElementById("uploadHint").textContent = "⏳ 正在解析 " + file.name + "…";
+      setUploadHint("⏳ 正在解析 " + file.name + "…");
       const mammoth = await loadMammoth();
       const arrayBuffer = await file.arrayBuffer();
       const result = await mammoth.extractRawText({ arrayBuffer });
@@ -1953,11 +2010,11 @@ async function handleFile(file) {
     if (!text.trim()) return toast("文件中未检测到文字内容");
 
     setInputText(text.trim());
-    document.getElementById("uploadHint").textContent = "✅ " + file.name + " 已加载";
+    setUploadHint("✅ " + file.name + " 已加载");
     toast("已加载 " + file.name);
   } catch (err) {
     toast("文件读取失败：" + err.message);
-    document.getElementById("uploadHint").textContent = "📁 拖拽 .docx / .txt / .md 到此处，或点击上传";
+    setUploadHint(UPLOAD_HINT_DEFAULT);
   }
 }
 
@@ -2047,7 +2104,7 @@ function viewHistory(i) {
   document.getElementById("inputCount").textContent = originalText.length + " 字";
   document.getElementById("outputArea").textContent = rewrittenText;
   document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
-  document.getElementById("viewTabs").style.display = "flex";
+  showViewTabs(true);
   switchView("result");
   closeHistory();
   if (r.v !== 2) {
@@ -2212,7 +2269,7 @@ async function singleRewrite(apiKey) {
 
   if (cm) setRewriting(true);
   document.getElementById("progressWrap").style.display = "none";
-  document.getElementById("viewTabs").style.display = "none";
+  showViewTabs(false);
   outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + escapeHtml(cm ? cm.name : "-") + ' 改写…</span>';
 
   const result = await doRewrite(apiKey, s, originalText, true, "");
@@ -2222,10 +2279,11 @@ async function singleRewrite(apiKey) {
     rewrittenText = result.text;
     outputEl.textContent = rewrittenText;
     document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
-    document.getElementById("viewTabs").style.display = "flex";
+    showViewTabs(true);
     switchView("result");
     saveHistory();
     reportQuality(originalText, rewrittenText);
+    setResultMeta(describeResult());
     toast("✅ 改写完成");
   } else if (result.stopped) {
     outputEl.innerHTML = '<span style="color:var(--warning)">⏹ 已停止</span>';
@@ -2275,7 +2333,7 @@ async function batchRewrite(apiKey) {
   if (cm) setRewriting(true);
   outputEl.textContent = "";
   document.getElementById("outputCount").textContent = "0 字";
-  document.getElementById("viewTabs").style.display = "none";
+  showViewTabs(false);
   progressWrap.style.display = "block";
   progressFill.style.width = "0%";
   progressText.textContent = `共 ${chunks.length} 段，正在改写第 1 段…`;
@@ -2327,10 +2385,11 @@ function finishBatch(results, total, progressWrap, progressText, progressFill, o
   rewrittenText = results.join("\n\n");
   outputEl.textContent = rewrittenText;
   document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
-  document.getElementById("viewTabs").style.display = "flex";
+  showViewTabs(true);
   switchView("result");
   saveHistory();
   reportQuality(originalText, rewrittenText);
+  setResultMeta(describeResult());
   if (warnText) toast(warnText);
   setTimeout(() => { progressWrap.style.display = "none"; }, 1800);
 }
