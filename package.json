@@ -1,6 +1,6 @@
 {
   "name": "aigc-reducer",
-  "version": "3.4.1",
+  "version": "3.4.2",
   "private": true,
   "description": "降低论文AIGC率的文本改写工具",
   "scripts": {

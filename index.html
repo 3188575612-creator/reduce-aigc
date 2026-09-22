@@ -1710,6 +1710,7 @@ function describeResult(quality) {
   const m = buildResultMeta();
   const parts = [m.modelLabel, m.strategyName, `${m.intensityName}强度`, `原文 ${originalText.length} → 结果 ${rewrittenText.length} 字`];
   if (quality && quality.sim !== null && quality.sim !== undefined) parts.push(`相似度 ${quality.sim}%`);
+  if (quality && quality.missing > 0) parts.push(`⚠ 丢失 ${quality.missing} 处技术信息`);
   return parts.join(" · ");
 }
 
@@ -1779,12 +1780,24 @@ function textSimilarity(a, b) {
   return Math.round((2 * lcs / (ta.length + tb.length)) * 100);
 }
 
-// 自检结果：正常态不进横幅（相似度并入右栏元信息行），只有真有问题才提示。
-// 之前把"一切正常"也铺成整宽绿条，视觉重量压过主按钮，反而像出了事。
+// 自检结果：相似度始终并入右栏元信息行；提示块只在本次会话第一次改写时出现，
+// 之后不再打扰（刷新页面后重新给一次结论）。
+let qualityReportedOnce = false;
+
 function reportQuality(orig, result) {
+  const sim = textSimilarity(orig, result);
+  const firstTime = !qualityReportedOnce;
+  qualityReportedOnce = true;
+
+  if (!firstTime) {
+    // 不再弹提示块，但仍把技术信息缺失统计出来交给元信息行（安静但信息不丢）
+    hideQualityHint();
+    const quietMissing = extractTechnicalTokens(orig).filter((t) => !result.includes(t)).length;
+    return { sim, missing: quietMissing, level: "quiet" };
+  }
+
   const el = document.getElementById("qualityHint");
   const items = [];
-  const sim = textSimilarity(orig, result);
 
   const tokens = extractTechnicalTokens(orig);
   const missing = tokens.filter((t) => !result.includes(t));

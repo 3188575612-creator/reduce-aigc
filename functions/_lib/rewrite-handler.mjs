@@ -2,7 +2,7 @@
 // 运行环境需提供 Web 标准 API：fetch、Request、Response、URL、AbortController。
 // 放在 functions/_lib/ 下作为源码模块；Pages 的路由面由仓库根的 _routes.json 限定在 /api/*。
 
-export const VERSION = "3.4.1";
+export const VERSION = "3.4.2";
 
 // 本服务不内置任何模型：端点、模型 ID、密钥全部由用户在自己的浏览器里配置后随请求带来。
 // 下面这份是按上游域名匹配的「参数适配」，不是模型清单 —— 用户填官方地址时会自动套用已知约束，

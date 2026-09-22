@@ -375,10 +375,11 @@ try {
       return JSON.stringify({ finish: r.finishReason, tokens: r.completionTokens, reasoningLen: r.reasoning.length, text: r.text });
     })()`,
       (v) => { const o = JSON.parse(v); return o.finish === "length" && o.tokens === 512 && o.reasoningLen === 2 && o.text === "甲"; }],
-    ["一切正常时不出横幅，相似度并入右栏元信息行", `(() => {
+    ["首次改写后不再弹提示块，但相似度始终在元信息行", `(() => {
       const orig = "本系统采用前后端分离架构，后端基于 Spring Boot 2.6.13 实现。";
       const out = "该平台采用前后端分离的实现方式，服务端以 Spring Boot 2.6.13 为核心。";
-      const q = reportQuality(orig, out);
+      reportQuality(orig, out);            // 先消耗掉"首次"机会
+      const q = reportQuality(orig, out);  // 第二次：应不再出提示块
       originalText = orig; rewrittenText = out;
       setResultMeta(describeResult(q));
       return JSON.stringify({
@@ -387,8 +388,28 @@ try {
         meta: document.getElementById("resultMeta").textContent
       });
     })()`,
-      (v) => { const o = JSON.parse(v); return o.level === "ok" && !o.hintShown && /相似度 \d+%/.test(o.meta); }],
+      (v) => {
+        const o = JSON.parse(v);
+        return o.level === "quiet" && !o.hintShown && typeof o.sim === "number" && /相似度 \d+%/.test(o.meta);
+      }],
+    ["非首次时丢技术信息不弹块，但元信息行会警示", `(() => {
+      qualityReportedOnce = true;   // 模拟已经提示过一次
+      const q = reportQuality("使用 Spring Boot 2.6.13 与表 exam_grade", "本系统采用后端框架，数据库中有成绩表");
+      originalText = "原始文本"; rewrittenText = "改写文本";
+      setResultMeta(describeResult(q));
+      return JSON.stringify({
+        shown: document.getElementById("qualityHint").classList.contains("show"),
+        missing: q.missing,
+        meta: document.getElementById("resultMeta").textContent
+      });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        return !o.shown && o.missing >= 3 && /丢失 \d+ 处技术信息/.test(o.meta);
+      }],
     ["需要注意时才是贴合内容的小块（不通栏铺色）", `(() => {
+      // 这条断言要在"首次"状态下验证，所以先复位标记
+      qualityReportedOnce = false;
       reportQuality("使用 Spring Boot 2.6.13 与表 exam_grade", "本系统采用后端框架，数据库中有成绩表");
       const el = document.getElementById("qualityHint");
       const box = el.querySelector(".qh-item").getBoundingClientRect();
