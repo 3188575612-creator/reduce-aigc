@@ -2,7 +2,7 @@
 // 运行环境需提供 Web 标准 API：fetch、Request、Response、URL、AbortController。
 // 放在 functions/_lib/ 下作为源码模块；Pages 的路由面由仓库根的 _routes.json 限定在 /api/*。
 
-export const VERSION = "2.1.0";
+export const VERSION = "2.1.2";
 
 // 端点与鉴权均已对照各厂商官方文档核对（2026-09）。
 // maxTokens / maxTemperature：上游硬约束，超出会报错，因此在此夹取。

@@ -1,6 +1,7 @@
 // 代理层回归自测：本地 mock 上游 + 直接驱动共享 handler。
 // 运行：npm test
 import http from "node:http";
+import fs from "node:fs";
 import {
   handleRewrite, VERSION, MODEL_ENDPOINTS,
   resolveTarget, applyModelLimits, buildRequestBody,
@@ -264,6 +265,10 @@ check("MiMo 请求显式关闭思考模式", mimoBody.thinking?.type === "disabl
 const dsBody = buildRequestBody(MODEL_ENDPOINTS["deepseek-v4-pro"], probeMessages, 1, 100, false);
 check("DeepSeek 请求不带 thinking 字段", !("thinking" in dsBody), JSON.stringify(dsBody).slice(0, 140));
 check("版本号已升到 2.1.x", VERSION.startsWith("2.1."), VERSION);
+
+const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+check("package.json 与代理版本一致（避免 health 报的版本对不上）",
+  pkg.version === VERSION, `package.json=${pkg.version} proxy=${VERSION}`);
 
 const failed = results.filter((x) => !x.ok);
 console.log(`\n共 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}`);
