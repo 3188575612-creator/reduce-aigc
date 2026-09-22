@@ -6,8 +6,9 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
 <title>AIGC降重工具 — 降低论文AI检测率</title>
-<script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<!-- mammoth（.docx 解析）改为首次拖入 docx 时按需加载，避免首屏等 CDN、也避免 CDN 故障拖垮页面 -->
 <style>
   :root {
     --bg: #f8f9fa;
@@ -15,6 +16,8 @@
     --border: #e5e7eb;
     --text: #1f2937;
     --text-secondary: #6b7280;
+    --text-tertiary: #9ca3af;
+    --surface: #fafbfc;
     --accent: #4f46e5;
     --accent-hover: #4338ca;
     --accent-light: #eef2ff;
@@ -24,6 +27,64 @@
     --warning: #d97706;
     --radius: 10px;
     --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --notice-bg: #fffbeb;
+    --notice-border: #fcd34d;
+    --notice-fg: #78350f;
+    --risk-high-bg: #fee2e2;
+    --risk-high-fg: #991b1b;
+    --risk-high-solid: #ef4444;
+    --risk-mid-bg: #fef3c7;
+    --risk-mid-fg: #92400e;
+    --risk-mid-solid: #d97706;
+    --risk-low-bg: #d1fae5;
+    --risk-low-fg: #065f46;
+    --risk-low-solid: #059669;
+    --diff-add-bg: #d1fae5;
+    --diff-add-fg: #065f46;
+    --diff-del-bg: #fee2e2;
+    --diff-del-fg: #991b1b;
+  }
+
+  /* 跟随系统深浅色 */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --card: #1c1f24;
+      --border: #2f343c;
+      --text: #e8eaed;
+      --text-secondary: #9aa1ab;
+      --text-tertiary: #6f7681;
+      --surface: #171a1f;
+      --accent: #8b8cf7;
+      --accent-hover: #a5a6ff;
+      --accent-light: #26263f;
+      --danger: #f87171;
+      --danger-light: #3a2124;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+      --notice-bg: #2c2411;
+      --notice-border: #6b4e12;
+      --notice-fg: #f2d391;
+      --risk-high-bg: #3a2224;
+      --risk-high-fg: #fca5a5;
+      --risk-high-solid: #f87171;
+      --risk-mid-bg: #3a3021;
+      --risk-mid-fg: #fcd34d;
+      --risk-mid-solid: #fbbf24;
+      --risk-low-bg: #1e3a2f;
+      --risk-low-fg: #6ee7b7;
+      --risk-low-solid: #34d399;
+      --diff-add-bg: #1e3a2f;
+      --diff-add-fg: #6ee7b7;
+      --diff-del-bg: #3a2224;
+      --diff-del-fg: #fca5a5;
+    }
+    .toast { background:#e8eaed; color:#14161a; }
+    .btn-primary { color:#14161a; }
+    .model-select {
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239aa1ab' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    }
   }
 
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -42,9 +103,9 @@
   /* ---- First-run notice ---- */
   .notice-bar {
     margin: 12px 24px 0; padding: 10px 14px;
-    background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius);
+    background: var(--notice-bg); border: 1px solid var(--notice-border); border-radius: var(--radius);
     display: flex; align-items: center; gap: 14px;
-    font-size: 12px; line-height: 1.7; color: #78350f;
+    font-size: 12px; line-height: 1.7; color: var(--notice-fg);
   }
   .notice-bar-text { flex: 1; min-width: 0; }
   .header-left { display:flex; align-items:center; gap:10px; }
@@ -75,7 +136,7 @@
   .history-item-meta { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
   .history-item-time { font-size:12px; color:var(--text-secondary); }
   .history-item-tag { font-size:11px; background:var(--accent-light); color:var(--accent); padding:2px 8px; border-radius:10px; }
-  .history-item-orig { font-size:12px; color:#9ca3af; margin-bottom:4px; }
+  .history-item-orig { font-size:12px; color:var(--text-tertiary); margin-bottom:4px; }
   .history-item-result { font-size:13px; margin-bottom:8px; }
   .history-item-actions { display:flex; gap:6px; }
 
@@ -188,8 +249,8 @@
     resize:none; outline:none; transition:border-color .2s; overflow-y:auto;
   }
   .input-area:focus { border-color:var(--accent); }
-  .output-area { background:#fafbfc; white-space:pre-wrap; word-break:break-word; overflow-y:auto; }
-  .output-placeholder { color:#c4c7cc; font-style:italic; }
+  .output-area { background:var(--surface); white-space:pre-wrap; word-break:break-word; overflow-y:auto; }
+  .output-placeholder { color:var(--text-tertiary); font-style:italic; }
 
   /* ---- Upload ---- */
   .upload-zone {
@@ -247,11 +308,20 @@
   /* ---- Compare view ---- */
   .compare-area { padding:4px; font-size:14px; line-height:1.9; height:460px; overflow-y:auto; }
   .cmp-row { display:flex; gap:8px; margin-bottom:10px; padding:10px; border-radius:6px; border:1px solid var(--border); }
-  .cmp-left { flex:1; color:#9ca3af; padding-right:10px; border-right:1px dashed var(--border); }
+  .cmp-left { flex:1; color:var(--text-tertiary); padding-right:10px; border-right:1px dashed var(--border); }
   .cmp-right { flex:1; padding-left:10px; }
-  .cmp-add { background:#d1fae5; color:#065f46; padding:1px 3px; border-radius:2px; }
-  .cmp-remove { background:#fee2e2; color:#991b1b; text-decoration:line-through; padding:1px 3px; border-radius:2px; }
+  .cmp-add { background:var(--diff-add-bg); color:var(--diff-add-fg); padding:1px 3px; border-radius:2px; }
+  .cmp-remove { background:var(--diff-del-bg); color:var(--diff-del-fg); text-decoration:line-through; padding:1px 3px; border-radius:2px; }
   .cmp-label { font-size:11px; color:var(--text-secondary); margin-bottom:4px; font-weight:600; }
+
+  /* ---- Quality hint ---- */
+  .quality-hint { display:none; margin-top:10px; font-size:12px; line-height:1.7; }
+  .quality-hint.show { display:block; }
+  .qh-item { border-radius:6px; padding:8px 10px; margin-bottom:6px; }
+  .qh-warn { background:var(--risk-mid-bg); color:var(--risk-mid-fg); }
+  .qh-ok { background:var(--risk-low-bg); color:var(--risk-low-fg); }
+  .qh-bad { background:var(--risk-high-bg); color:var(--risk-high-fg); }
+  .qh-item code { background:rgba(127,127,127,0.18); padding:0 3px; border-radius:3px; font-size:11px; }
 
   /* ---- Divider ---- */
   .divider { height:1px; background:var(--border); margin:16px 0; }
@@ -276,10 +346,10 @@
   <div class="header-right">
     <span class="header-info" id="proxyStatus"></span>
     <span class="header-info" id="headerInfo"></span>
-    <button class="btn-settings" title="改写历史" onclick="openHistory()">📜</button>
-    <button class="btn-settings" title="公告" onclick="openAnnounce()">📢</button>
-    <button class="btn-settings" title="AI检测" onclick="openDetect()">🔍</button>
-    <button class="btn-settings" title="设置" onclick="openSettings()">⚙</button>
+    <button class="btn-settings" title="改写历史" aria-label="改写历史" onclick="openHistory()">📜</button>
+    <button class="btn-settings" title="公告" aria-label="公告" onclick="openAnnounce()">📢</button>
+    <button class="btn-settings" title="AI检测" aria-label="AI 痕迹自查" onclick="openDetect()">🔍</button>
+    <button class="btn-settings" title="设置" aria-label="设置" onclick="openSettings()">⚙</button>
   </div>
 </header>
 
@@ -317,9 +387,9 @@
       <span class="char-count" id="inputCount">0 字</span>
     </div>
     <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
-      <span id="uploadHint">📁 拖拽 .docx / .txt 到此处，或点击上传</span>
+      <span id="uploadHint">📁 拖拽 .docx / .txt / .md 到此处，或点击上传</span>
     </div>
-    <input type="file" id="fileInput" accept=".docx,.txt" style="display:none" onchange="handleFile(this.files[0])">
+    <input type="file" id="fileInput" accept=".docx,.txt,.md" style="display:none" onchange="handleFile(this.files[0])">
     <textarea class="input-area" id="inputText"
       placeholder="在此粘贴论文段落…&#10;&#10;建议每次 500-2000 字效果最佳；超过 2000 字会自动按段落分段改写（每段约 500 字）。"></textarea>
     <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.6;">
@@ -343,9 +413,12 @@
     </div>
     <div class="compare-area" id="compareArea" style="display:none;">
     </div>
+    <div class="quality-hint" id="qualityHint"></div>
     <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm" onclick="copyResult()">📋 复制</button>
       <button class="btn btn-ghost btn-sm" onclick="downloadResult()">💾 下载 MD</button>
+      <button class="btn btn-ghost btn-sm" onclick="downloadWord()">📄 导出 Word</button>
+      <button class="btn btn-ghost btn-sm" onclick="polishAgain()">✨ 再降一次</button>
       <button class="btn btn-ghost btn-sm" onclick="clearAll()">🗑 清空</button>
     </div>
   </div>
@@ -357,7 +430,11 @@
     <div class="progress-text" id="progressText">正在改写第 1/3 段…</div>
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
   </div>
-  <button class="btn btn-primary btn-rewrite" id="rewriteBtn" onclick="startRewrite()">🔄 开始改写</button>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <button class="btn btn-primary btn-rewrite" id="rewriteBtn" onclick="startRewrite()">🔄 开始改写</button>
+    <button class="btn btn-ghost" id="stopBtn" onclick="stopRewrite()" style="display:none;">⏹ 停止</button>
+  </div>
+  <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;">快捷键：Ctrl / ⌘ + Enter 开始改写，Esc 关闭弹窗</div>
 </div>
 
 <!-- Settings Modal -->
@@ -385,19 +462,23 @@
         <input type="checkbox" id="rememberKeys">
         记住 Key（关闭则仅保留在本次会话，关闭浏览器即清除）
       </label>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
+        <input type="checkbox" id="saveDraft">
+        自动保存输入草稿（防刷新丢失；文本存在你自己的浏览器里，可随时关闭）
+      </label>
       <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
         Key 只保存在你自己的浏览器里，但每次改写都会经由本站代理转发给上游模型；不要使用你不信任的第三方部署。
       </div>
 
       <div class="divider"></div>
 
-      <!-- Model -->
+      <!-- Model select -->
       <div class="section-title">🤖 当前模型</div>
       <select class="model-select" id="modelSelect" onchange="saveModel()">
         <option value="">（还没有自定义模型）</option>
       </select>
       <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
-        本工具不内置任何模型：请在下方添加你使用的服务（名称、完整 API 地址、模型 ID），
+        本工具不内置任何模型：请在下方添加你使用的服务（名称、完整 API 地址、模型 ID、鉴权方式），
         并填入该服务的 Key。填官方地址时会自动套用已知的参数约束。
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
@@ -413,6 +494,10 @@
         <input class="input" id="cmName" placeholder="名称" style="flex:1;min-width:60px;">
         <input class="input" id="cmUrl" placeholder="API完整地址" style="flex:2;min-width:120px;">
         <input class="input" id="cmId" placeholder="模型ID" style="flex:1;min-width:80px;">
+        <select class="input" id="cmAuth" title="鉴权方式" style="flex:0 0 96px;">
+          <option value="bearer">Bearer</option>
+          <option value="apikey">api-key 头</option>
+        </select>
         <button class="btn btn-primary btn-sm" id="cmAddBtn" onclick="addCustomModel()">+</button>
       </div>
       <div style="font-size:10px;color:var(--text-secondary);margin-top:2px;">
@@ -471,7 +556,7 @@
 </div>
 
 <!-- Toast -->
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 // ==================== Data store ====================
@@ -483,7 +568,8 @@ function defaultSettings() {
     activeKeyId: null,
     model: null,
     customModels: [],
-    rememberKeys: true
+    rememberKeys: true,
+    saveDraft: true
   };
 }
 
@@ -630,9 +716,10 @@ document.addEventListener("DOMContentLoaded", () => {
     currentIntensity = btn.dataset.intensity;
   });
 
-  // 字数统计
+  // 字数统计 + 草稿自动保存
   document.getElementById("inputText").addEventListener("input", () => {
     document.getElementById("inputCount").textContent = document.getElementById("inputText").value.length + " 字";
+    scheduleDraftSave();
   });
 
   // 恢复模型选择（下拉项由自定义模型渲染）
@@ -653,15 +740,51 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // 草稿开关
+  const draftBox = document.getElementById("saveDraft");
+  if (draftBox) {
+    draftBox.checked = s.saveDraft !== false;
+    draftBox.addEventListener("change", () => {
+      const cur = loadSettings();
+      cur.saveDraft = draftBox.checked;
+      saveSettings(cur);
+      if (!cur.saveDraft) clearDraft();
+      else saveDraft();
+      toast(cur.saveDraft ? "已开启输入草稿自动保存" : "已关闭草稿保存，并清除已存草稿");
+    });
+  }
+
   // 默认强度高亮
   const defaultIntensityBtn = document.querySelector('#intensityGroup [data-intensity="' + currentIntensity + '"]');
   if (defaultIntensityBtn) defaultIntensityBtn.classList.add("active");
+
+  // 快捷键：Esc 关弹窗，Ctrl/⌘+Enter 开始改写
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeSettings({ target: document.getElementById("modalOverlay") });
+      closeHistory({ target: document.getElementById("historyOverlay") });
+      closeDetect({ target: document.getElementById("detectOverlay") });
+      closeAnnounce({ target: document.getElementById("announceOverlay") });
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      const btn = document.getElementById("rewriteBtn");
+      if (!btn.disabled) { e.preventDefault(); startRewrite(); }
+    }
+  });
 
   // 渲染 header 状态
   renderKeyList();
   updateHeaderInfo();
   checkProxyHealth();
   initFirstRunNotice();
+  restoreDraft();
+});
+
+// 改写进行中时，关页面/刷新给出提醒，避免白等
+window.addEventListener("beforeunload", (e) => {
+  const busy = document.getElementById("rewriteBtn");
+  if (busy && busy.disabled) { e.preventDefault(); e.returnValue = ""; }
 });
 
 const NOTICE_FLAG = "aigc_notice_v21";
@@ -715,6 +838,9 @@ function openSettings() {
   document.getElementById("modalOverlay").classList.add("open");
   renderKeyList();
   renderCustomModels();
+  if (loadKeys().length === 0) {
+    setTimeout(() => { const el = document.getElementById("newKeyValue"); if (el) el.focus(); }, 80);
+  }
 }
 
 function closeSettings(e) {
@@ -736,11 +862,11 @@ function renderCustomModels() {
       <div class="custom-model-item">
         <span style="flex:1;min-width:0;">
           <strong>${escapeHtml(m.name)}</strong>
-          <span style="color:#9ca3af;font-size:10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(m.url)} · ${escapeHtml(m.modelId)}</span>
+          <span style="color:var(--text-tertiary);font-size:10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(m.url)} · ${escapeHtml(m.modelId)} · ${m.auth === "apikey" ? "api-key 头" : "Bearer"}</span>
         </span>
         <span style="display:flex;gap:4px;flex-shrink:0;">
-          <span class="cm-edit" onclick="editCustomModel('${m.id}')">✎</span>
-          <span class="cm-del" onclick="delCustomModel('${m.id}')">✕</span>
+          <span class="cm-edit" role="button" tabindex="0" aria-label="编辑模型 ${escapeHtml(m.name)}" onclick="editCustomModel('${escapeHtml(m.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();editCustomModel('${escapeHtml(m.id)}');}">✎</span>
+          <span class="cm-del" role="button" tabindex="0" aria-label="删除模型 ${escapeHtml(m.name)}" onclick="delCustomModel('${escapeHtml(m.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();delCustomModel('${escapeHtml(m.id)}');}">✕</span>
         </span>
       </div>
     `).join("");
@@ -777,7 +903,9 @@ function addCustomModel() {
   const name = document.getElementById("cmName").value.trim();
   const url = document.getElementById("cmUrl").value.trim();
   const modelId = document.getElementById("cmId").value.trim();
+  const auth = document.getElementById("cmAuth").value === "apikey" ? "apikey" : "bearer";
   if (!name || !url || !modelId) return toast("请填写完整");
+  if (!/^https?:\/\//i.test(url)) return toast("API 地址要以 http(s):// 开头");
 
   const s = loadSettings();
   if (!s.customModels) s.customModels = [];
@@ -785,11 +913,11 @@ function addCustomModel() {
   const wasEdit = !!cmEditId;
   if (wasEdit) {
     const idx = s.customModels.findIndex(m => m.id === cmEditId);
-    if (idx >= 0) s.customModels[idx] = { id: cmEditId, name, url, modelId };
+    if (idx >= 0) s.customModels[idx] = { id: cmEditId, name, url, modelId, auth };
     cmEditId = null;
     document.getElementById("cmAddBtn").textContent = "+";
   } else {
-    s.customModels.push({ id: "cm_" + Date.now(), name, url, modelId });
+    s.customModels.push({ id: "cm_" + Date.now(), name, url, modelId, auth });
   }
 
   // 没有选中模型（首次添加或刚删空）时自动选中，省一步操作
@@ -801,6 +929,7 @@ function addCustomModel() {
   document.getElementById("cmName").value = "";
   document.getElementById("cmUrl").value = "";
   document.getElementById("cmId").value = "";
+  document.getElementById("cmAuth").value = "bearer";
   renderCustomModels();
   toast(wasEdit ? "已更新" : "已添加");
 }
@@ -812,6 +941,7 @@ function editCustomModel(id) {
   document.getElementById("cmName").value = m.name;
   document.getElementById("cmUrl").value = m.url;
   document.getElementById("cmId").value = m.modelId;
+  document.getElementById("cmAuth").value = m.auth === "apikey" ? "apikey" : "bearer";
   cmEditId = id;
   document.getElementById("cmAddBtn").textContent = "✓";
 }
@@ -822,6 +952,7 @@ function delCustomModel(id) {
     document.getElementById("cmName").value = "";
     document.getElementById("cmUrl").value = "";
     document.getElementById("cmId").value = "";
+    document.getElementById("cmAuth").value = "bearer";
     document.getElementById("cmAddBtn").textContent = "+";
   }
   const s = loadSettings();
@@ -936,7 +1067,7 @@ async function testConnection() {
     apiKey: key.key,
     model: cm.modelId,
     baseUrl: cm.url,
-    authType: "bearer",
+    authType: cm.auth === "apikey" ? "apikey" : "bearer",
     temperature: 0,
     max_tokens: 32,
     messages: [{ role: "user", content: "只回复两个字：可以" }]
@@ -968,6 +1099,23 @@ async function testConnection() {
 }
 
 // ==================== Rewrite ====================
+let abortController = null;
+let rewriteStopped = false;
+
+function setRewriting(on) {
+  const btn = document.getElementById("rewriteBtn");
+  const stop = document.getElementById("stopBtn");
+  btn.disabled = on;
+  btn.innerHTML = on ? '<span class="spinner"></span>改写中…' : "🔄 开始改写";
+  stop.style.display = on ? "" : "none";
+}
+
+function stopRewrite() {
+  rewriteStopped = true;
+  if (abortController) abortController.abort();
+  toast("正在停止…");
+}
+
 async function startRewrite() {
   const activeKey = getActiveKey();
   if (!activeKey) {
@@ -985,15 +1133,43 @@ async function startRewrite() {
 
   originalText = document.getElementById("inputText").value.trim();
   if (!originalText) return toast("请先输入待改写文本");
+  if (originalText.length > 50000) return toast("文本过长（超过 5 万字），请分批改写");
   if (!currentIntensity) currentIntensity = "normal";
 
-  if (originalText.length > 2000) {
-    const est = Math.ceil(originalText.length / BATCH_CHUNK_SIZE);
-    if (!confirm(`原文 ${originalText.length} 字，将自动分段改写（每段约 ${BATCH_CHUNK_SIZE} 字，预计 ${est} 段，段间会带上文以保持指代一致）。\n\n段数较多时耗时较长，是否继续？`)) return;
-    return batchRewrite(activeKey.key);
-  }
+  rewriteStopped = false;
+  abortController = new AbortController();
+  hideQualityHint();
 
-  return singleRewrite(activeKey.key);
+  try {
+    if (originalText.length > 2000) {
+      const est = Math.ceil(originalText.length / BATCH_CHUNK_SIZE);
+      if (!confirm(`原文 ${originalText.length} 字，将自动分段改写（每段约 ${BATCH_CHUNK_SIZE} 字，预计 ${est} 段，段间会带上文以保持指代一致）。\n\n段数较多时耗时较长，可随时点「停止」。是否继续？`)) return;
+      await batchRewrite(activeKey.key);
+    } else {
+      await singleRewrite(activeKey.key);
+    }
+  } finally {
+    setRewriting(false);
+    abortController = null;
+  }
+}
+
+// 把当前结果当成新原文再降一次（迭代降 AI 味，比一次硬改更稳）
+async function polishAgain() {
+  if (!rewrittenText) return toast("还没有可继续处理的结果");
+  const activeKey = getActiveKey();
+  if (!activeKey) return toast("请先配置 API Key");
+  if (!getCustomModel(loadSettings().model)) return toast("请先添加你自己的模型");
+
+  originalText = rewrittenText;
+  setInputText(originalText);
+  rewrittenText = "";
+  document.getElementById("outputArea").innerHTML = '<span class="output-placeholder">已把上次结果放回左侧，准备再降一次…</span>';
+  document.getElementById("viewTabs").style.display = "none";
+  document.getElementById("compareArea").style.display = "none";
+  hideQualityHint();
+  toast("已把结果作为新的原文，点「开始改写」再降一次");
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // ==================== Export ====================
@@ -1005,32 +1181,99 @@ function copyResult() {
   );
 }
 
-function downloadResult() {
-  if (!rewrittenText) return toast("没有可下载的内容");
+function buildResultMeta() {
   const s = loadSettings();
   const cm = getCustomModel(s.model);
-  const strategyName = STRATEGIES[currentStrategy].name;
-  const intensityName = (INTENSITY[currentIntensity] || INTENSITY.normal).label;
-  const md = `# 论文改写结果\n\n**改写策略**: ${strategyName}\n**改写强度**: ${intensityName}\n**模型**: ${cm ? cm.name + " (" + cm.modelId + ")" : s.model}\n**时间**: ${new Date().toLocaleString()}\n**原文长度**: ${originalText.length} 字 / **改写长度**: ${rewrittenText.length} 字\n\n> 本结果由 AI 改写生成，仅供写作参考，使用前请自行核对事实与学术规范要求。\n\n---\n\n## 原文\n\n${originalText}\n\n---\n\n## 改写后\n\n${rewrittenText}\n`;
-  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+  return {
+    strategyName: STRATEGIES[currentStrategy].name,
+    intensityName: (INTENSITY[currentIntensity] || INTENSITY.normal).label,
+    modelLabel: cm ? `${cm.name} (${cm.modelId})` : "未配置",
+    time: new Date().toLocaleString(),
+  };
+}
+
+function saveBlob(content, mime, filename) {
+  const blob = new Blob([content], { type: mime });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `rewrite_${Date.now()}.md`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+function downloadResult() {
+  if (!rewrittenText) return toast("没有可下载的内容");
+  const m = buildResultMeta();
+  const md = `# 论文改写结果
+
+**改写策略**: ${m.strategyName}
+**改写强度**: ${m.intensityName}
+**模型**: ${m.modelLabel}
+**时间**: ${m.time}
+**原文长度**: ${originalText.length} 字 / **改写长度**: ${rewrittenText.length} 字
+
+> 本结果由 AI 改写生成，仅供写作参考，使用前请自行核对事实与学术规范要求。
+
+---
+
+## 原文
+
+${originalText}
+
+---
+
+## 改写后
+
+${rewrittenText}
+`;
+  saveBlob(md, "text/markdown;charset=utf-8", `rewrite_${Date.now()}.md`);
   toast("已下载 Markdown 文件");
 }
 
+// 导出 Word：把段落包成带样式的 HTML 存成 .doc，Word / WPS 均可直接打开并保留分段
+function downloadWord() {
+  if (!rewrittenText) return toast("没有可导出的内容");
+  const m = buildResultMeta();
+  const paragraphs = rewrittenText
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `  <p>${escapeHtml(p)}</p>`)
+    .join("\n");
+
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+<head>
+<meta charset="utf-8">
+<title>论文改写结果</title>
+<style>
+  body { font-family:"宋体",SimSun,serif; font-size:12pt; line-height:1.6; }
+  p { text-indent:2em; margin:0 0 8pt; }
+  .meta { font-size:9pt; color:#666; text-indent:0; }
+</style>
+</head>
+<body>
+  <p class="meta">改写策略：${escapeHtml(m.strategyName)}　强度：${escapeHtml(m.intensityName)}　模型：${escapeHtml(m.modelLabel)}　时间：${escapeHtml(m.time)}</p>
+  <p class="meta">本结果由 AI 改写生成，仅供写作参考，请自行核对事实与学术规范要求。</p>
+  <hr>
+${paragraphs}
+</body>
+</html>`;
+  saveBlob("\ufeff" + html, "application/msword;charset=utf-8", `rewrite_${Date.now()}.doc`);
+  toast("已导出 Word（.doc），可直接用 Word / WPS 打开");
+}
+
 function clearAll() {
-  document.getElementById("inputText").value = "";
+  setInputText("");
+  clearDraft();
   document.getElementById("outputArea").innerHTML = '<span class="output-placeholder">改写后的文本将显示在这里…</span>';
-  document.getElementById("inputCount").textContent = "0 字";
   document.getElementById("outputCount").textContent = "0 字";
   originalText = "";
   rewrittenText = "";
   document.getElementById("viewTabs").style.display = "none";
   document.getElementById("compareArea").style.display = "none";
   document.getElementById("outputArea").style.display = "";
+  hideQualityHint();
+  setRewriting(false);
 }
 
 // ==================== Utils ====================
@@ -1039,13 +1282,113 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add("show");
   clearTimeout(el._timer);
-  el._timer = setTimeout(() => el.classList.remove("show"), 2000);
+  el._timer = setTimeout(() => el.classList.remove("show"), 2400);
 }
 
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ==================== Input draft ====================
+const DRAFT_KEY = "aigc_draft";
+let draftTimer = null;
+
+function setInputText(text) {
+  document.getElementById("inputText").value = text;
+  document.getElementById("inputCount").textContent = text.length + " 字";
+  scheduleDraftSave();
+}
+
+function scheduleDraftSave() {
+  if (loadSettings().saveDraft === false) return;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraft, 600);
+}
+
+function saveDraft() {
+  if (loadSettings().saveDraft === false) return; // 开关关掉后任何调用都不应再写
+  try {
+    const text = document.getElementById("inputText").value;
+    if (!text.trim()) localStorage.removeItem(DRAFT_KEY);
+    else localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, time: Date.now() }));
+  } catch { /* 隐私模式或超出配额 */ }
+}
+
+function restoreDraft() {
+  if (loadSettings().saveDraft === false) return false;
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { return false; }
+  if (!draft || typeof draft.text !== "string" || !draft.text.trim()) return false;
+  setInputText(draft.text);
+  toast(`已恢复上次未完成的输入（${draft.text.length} 字）`);
+  return true;
+}
+
+function clearDraft() {
+  clearTimeout(draftTimer);
+  try { localStorage.removeItem(DRAFT_KEY); } catch { /* 忽略 */ }
+}
+
+// ==================== Quality self-check ====================
+function hideQualityHint() {
+  const el = document.getElementById("qualityHint");
+  el.classList.remove("show");
+  el.innerHTML = "";
+}
+
+// 提取原文里的"硬信息"：版本号、数字、英文标识符（表名/参数名/框架名）
+function extractTechnicalTokens(text) {
+  const out = new Set();
+  for (const m of text.match(/\d+(?:\.\d+)+/g) || []) out.add(m);
+  for (const m of text.match(/[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*/g) || []) {
+    if (m.length >= 3) out.add(m);
+  }
+  for (const m of text.match(/\d+(?:\.\d+)?\s?(?:%|GB|MB|KB|TB|ms|s|分钟|小时|条|个|次|行|列|人|万)/g) || []) {
+    out.add(m.replace(/\s+/g, ""));
+  }
+  return [...out];
+}
+
+function textSimilarity(a, b) {
+  const ta = tokenize(a);
+  const tb = tokenize(b);
+  if (!ta.length || !tb.length) return null;
+  // 滚动数组版 LCS 只吃时间不吃内存，所以这里放得比 diff 宽松些
+  if (ta.length * tb.length > 60000000) return null;
+  const lcs = lcsLength(ta, tb);
+  return Math.round((2 * lcs / (ta.length + tb.length)) * 100);
+}
+
+function reportQuality(orig, result) {
+  const el = document.getElementById("qualityHint");
+  const items = [];
+
+  const tokens = extractTechnicalTokens(orig);
+  const missing = tokens.filter((t) => !result.includes(t));
+  if (tokens.length && missing.length) {
+    const shown = missing.slice(0, 8).map((t) => `<code>${escapeHtml(t)}</code>`).join(" ");
+    items.push({
+      cls: missing.length > tokens.length * 0.2 ? "qh-bad" : "qh-warn",
+      html: `⚠ 有 ${missing.length}/${tokens.length} 处技术信息没出现在结果里：${shown}${missing.length > 8 ? " …" : ""}<br>改写时容易丢版本号与表名，请对照原文核对。`,
+    });
+  }
+
+  const sim = textSimilarity(orig, result);
+  if (sim !== null) {
+    if (sim >= 85) {
+      items.push({ cls: "qh-warn", html: `⚠ 与原文相似度约 ${sim}%，改写幅度偏小。可换「降AI·风格」策略、选重度，或点「✨ 再降一次」迭代处理。` });
+    } else if (sim <= 40) {
+      items.push({ cls: "qh-warn", html: `⚠ 与原文相似度约 ${sim}%，改动很大，注意核对是否偏离原意或丢了细节。` });
+    } else {
+      items.push({ cls: "qh-ok", html: `✓ 与原文相似度约 ${sim}%，属正常改写幅度。` });
+    }
+  }
+
+  if (!items.length) return hideQualityHint();
+  el.innerHTML = items.map((i) => `<div class="qh-item ${i.cls}">${i.html}</div>`).join("");
+  el.classList.add("show");
 }
 
 // ==================== View switching ====================
@@ -1084,9 +1427,9 @@ function renderCompare() {
       const [leftHtml, rightHtml] = diffWords(o, r);
       html += `<div class="cmp-row"><div class="cmp-left">${leftHtml}</div><div class="cmp-right">${rightHtml}</div></div>`;
     } else if (i < oSentences.length) {
-      html += `<div class="cmp-row"><div class="cmp-left" style="background:#fee2e2;">${escapeHtml(o)}</div><div class="cmp-right" style="color:#c4c7cc;">（已删除）</div></div>`;
+      html += `<div class="cmp-row"><div class="cmp-left" style="background:var(--diff-del-bg);">${escapeHtml(o)}</div><div class="cmp-right" style="color:var(--text-tertiary);">（已删除）</div></div>`;
     } else {
-      html += `<div class="cmp-row"><div class="cmp-left" style="color:#c4c7cc;">（新增）</div><div class="cmp-right" style="background:#d1fae5;">${escapeHtml(r)}</div></div>`;
+      html += `<div class="cmp-row"><div class="cmp-left" style="color:var(--text-tertiary);">（新增）</div><div class="cmp-right" style="background:var(--diff-add-bg);">${escapeHtml(r)}</div></div>`;
     }
   }
 
@@ -1101,7 +1444,7 @@ function splitSentences(text) {
   }, []).filter(s => s.trim());
 }
 
-const DIFF_CELL_LIMIT = 250000;
+const DIFF_CELL_LIMIT = 400000;
 
 function diffWords(oldStr, newStr) {
   const oWords = tokenize(oldStr);
@@ -1133,19 +1476,48 @@ function diffWords(oldStr, newStr) {
   return [oHtml, nHtml];
 }
 
+// 中文按「字」切、英文数字按「词」切（版本号 2.6.13、exam_grade 这类保持完整）。
+// 之前把所有连续中文当成一个 token，导致对比视图只能整句标红、相似度只有 0/100 两档。
 function tokenize(text) {
   const tokens = [];
   let buf = "";
-  for (const ch of text) {
-    if (/[\u4e00-\u9fff\w]/.test(ch)) {
+  const flush = () => { if (buf) { tokens.push(buf); buf = ""; } };
+  const chars = Array.from(text);
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    const next = chars[i + 1] || "";
+    if (/[A-Za-z0-9_]/.test(ch)) {
       buf += ch;
+    } else if (/[.\-]/.test(ch) && buf && /[A-Za-z0-9]/.test(next)) {
+      buf += ch; // 保留 2.6.13 / gpt-4 这类整体性
+    } else if (/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]/.test(ch)) {
+      flush();
+      tokens.push(ch);
     } else {
-      if (buf) { tokens.push(buf); buf = ""; }
+      flush();
       tokens.push(ch);
     }
   }
-  if (buf) tokens.push(buf);
+  flush();
   return tokens;
+}
+
+// 只要长度时用滚动数组，避免为了算相似度分配 m×n 的二维表
+function lcsLength(a, b) {
+  if (a.length < b.length) { const t = a; a = b; b = t; }
+  const n = b.length;
+  let prev = new Uint32Array(n + 1);
+  let cur = new Uint32Array(n + 1);
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= n; j++) {
+      cur[j] = a[i - 1] === b[j - 1]
+        ? prev[j - 1] + 1
+        : (prev[j] >= cur[j - 1] ? prev[j] : cur[j - 1]);
+    }
+    const t = prev; prev = cur; cur = t;
+    cur.fill(0);
+  }
+  return prev[n];
 }
 
 function computeLCS(a, b) {
@@ -1178,32 +1550,50 @@ function computeLCS(a, b) {
   });
 })();
 
+let mammothLoading = null;
+function loadMammoth() {
+  if (window.mammoth) return Promise.resolve(window.mammoth);
+  if (!mammothLoading) {
+    mammothLoading = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js";
+      s.onload = () => (window.mammoth ? resolve(window.mammoth) : reject(new Error("解析库加载异常")));
+      s.onerror = () => {
+        mammothLoading = null;
+        reject(new Error("无法加载 docx 解析库（CDN 不可达），请先把内容复制成 .txt"));
+      };
+      document.head.appendChild(s);
+    });
+  }
+  return mammothLoading;
+}
+
 async function handleFile(file) {
   if (!file) return;
   const name = file.name.toLowerCase();
 
   try {
     let text = "";
-    if (name.endsWith(".txt")) {
+    if (name.endsWith(".txt") || name.endsWith(".md")) {
       text = await file.text();
     } else if (name.endsWith(".docx")) {
       document.getElementById("uploadHint").textContent = "⏳ 正在解析 " + file.name + "…";
+      const mammoth = await loadMammoth();
       const arrayBuffer = await file.arrayBuffer();
       const result = await mammoth.extractRawText({ arrayBuffer });
       text = result.value;
     } else {
-      return toast("仅支持 .docx 和 .txt 文件");
+      return toast("仅支持 .docx / .txt / .md 文件（.doc 请先另存为 .docx）");
     }
 
     if (!text.trim()) return toast("文件中未检测到文字内容");
 
-    document.getElementById("inputText").value = text.trim();
-    document.getElementById("inputCount").textContent = text.trim().length + " 字";
+    setInputText(text.trim());
     document.getElementById("uploadHint").textContent = "✅ " + file.name + " 已加载";
     toast("已加载 " + file.name);
   } catch (err) {
     toast("文件读取失败：" + err.message);
-    document.getElementById("uploadHint").textContent = "📁 拖拽 .docx / .txt 到此处，或点击上传";
+    document.getElementById("uploadHint").textContent = "📁 拖拽 .docx / .txt / .md 到此处，或点击上传";
   }
 }
 
@@ -1367,7 +1757,7 @@ async function runDetect() {
       apiKey,
       model: detectModel,
       baseUrl: cm.url,
-      authType: "bearer",
+      authType: cm.auth === "apikey" ? "apikey" : "bearer",
       temperature: 0.2,
       max_tokens: 1024,
       messages: [
@@ -1408,10 +1798,10 @@ async function runDetect() {
       }
     }
 
-    const colors = { "低": "#059669", "中": "#d97706", "高": "#ef4444" };
-    const bgs = { "低": "#d1fae5", "中": "#fef3c7", "高": "#fee2e2" };
-    const c = colors[result.level] || "#6b7280";
-    const bg = bgs[result.level] || "#f3f4f6";
+    const colors = { "低": "var(--risk-low-solid)", "中": "var(--risk-mid-solid)", "高": "var(--risk-high-solid)" };
+    const bgs = { "低": "var(--risk-low-bg)", "中": "var(--risk-mid-bg)", "高": "var(--risk-high-bg)" };
+    const c = colors[result.level] || "var(--text-secondary)";
+    const bg = bgs[result.level] || "var(--bg)";
 
     let html = `
       <div style="text-align:center;margin-bottom:16px;">
@@ -1420,8 +1810,8 @@ async function runDetect() {
         <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">模型自评的 AI 痕迹概率 / 100（非权威检测）</div>
       </div>
       <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
-        <span style="background:#fee2e2;padding:1px 6px;border-radius:3px;">红色</span>=高风险句
-        <span style="background:#fef3c7;padding:1px 6px;border-radius:3px;margin-left:6px;">黄色</span>=中风险句
+        <span style="background:var(--risk-high-bg);padding:1px 6px;border-radius:3px;">红色</span>=高风险句
+        <span style="background:var(--risk-mid-bg);padding:1px 6px;border-radius:3px;margin-left:6px;">黄色</span>=中风险句
       </div>
       <div style="font-size:11px;color:var(--text-secondary);background:var(--bg);border-radius:6px;padding:8px;margin-bottom:12px;line-height:1.6;">
         由「${escapeHtml(detectModel)}」自行打分，同一模型评价自己的改写结果会偏乐观；学校/期刊使用的检测系统与本结果无关联，请勿以此作为提交依据。
@@ -1436,8 +1826,8 @@ async function runDetect() {
       const iscore = info ? info.score : 0;
       const highlight = info ? info.highlight : false;
       let rowBg = "", tag = "";
-      if (highlight || iscore >= 60) { rowBg = "background:#fee2e2;"; tag = '<span style="background:#ef4444;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;">高风险</span>'; }
-      else if (iscore >= 30) { rowBg = "background:#fef3c7;"; tag = '<span style="background:#d97706;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;">中风险</span>'; }
+      if (highlight || iscore >= 60) { rowBg = "background:var(--risk-high-bg);"; tag = '<span style="background:var(--risk-high-solid);color:var(--card);font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;">高风险</span>'; }
+      else if (iscore >= 30) { rowBg = "background:var(--risk-mid-bg);"; tag = '<span style="background:var(--risk-mid-solid);color:var(--card);font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;">中风险</span>'; }
       html += `<div style="padding:8px 10px;margin-bottom:4px;border-radius:6px;font-size:13px;line-height:1.7;${rowBg}">${escapeHtml(sent)}${tag}</div>`;
     });
 
@@ -1453,18 +1843,16 @@ async function runDetect() {
 
 async function singleRewrite(apiKey) {
   const s = loadSettings();
-  const btn = document.getElementById("rewriteBtn");
+  const cm = getCustomModel(s.model);
   const outputEl = document.getElementById("outputArea");
 
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>改写中…';
+  if (cm) setRewriting(true);
   document.getElementById("progressWrap").style.display = "none";
   document.getElementById("viewTabs").style.display = "none";
-  outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + escapeHtml(s.model) + ' 改写…</span>';
+  outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + escapeHtml(cm ? cm.name : "-") + ' 改写…</span>';
 
   const result = await doRewrite(apiKey, s, originalText, true, "");
-  btn.disabled = false;
-  btn.innerHTML = "🔄 开始改写";
+  if (cm) setRewriting(false);
 
   if (result.success) {
     rewrittenText = result.text;
@@ -1473,9 +1861,13 @@ async function singleRewrite(apiKey) {
     document.getElementById("viewTabs").style.display = "flex";
     switchView("result");
     saveHistory();
+    reportQuality(originalText, rewrittenText);
     toast("✅ 改写完成");
+  } else if (result.stopped) {
+    outputEl.innerHTML = '<span style="color:var(--warning)">⏹ 已停止</span>';
+    toast("已停止");
   } else {
-    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(result.error)}<br><br>建议：缩短文本至 1500 字以内、切换模型，或检查 API Key 与余额。</span>`;
+    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(result.error)}<br><br>建议：缩短文本至 1500 字以内、切换模型，或用设置里的「🔌 测试当前模型」确认连接。</span>`;
   }
 }
 
@@ -1507,7 +1899,7 @@ function splitIntoChunks(text, maxLen) {
 
 async function batchRewrite(apiKey) {
   const s = loadSettings();
-  const btn = document.getElementById("rewriteBtn");
+  const cm = getCustomModel(s.model);
   const outputEl = document.getElementById("outputArea");
   const progressWrap = document.getElementById("progressWrap");
   const progressText = document.getElementById("progressText");
@@ -1516,8 +1908,7 @@ async function batchRewrite(apiKey) {
   const chunks = splitIntoChunks(originalText, BATCH_CHUNK_SIZE);
   if (!chunks.length) return toast("没有可改写的内容");
 
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>分段改写中…';
+  if (cm) setRewriting(true);
   outputEl.textContent = "";
   document.getElementById("outputCount").textContent = "0 字";
   document.getElementById("viewTabs").style.display = "none";
@@ -1526,25 +1917,24 @@ async function batchRewrite(apiKey) {
   progressText.textContent = `共 ${chunks.length} 段，正在改写第 1 段…`;
 
   const results = [];
+  let stopped = false;
 
   for (let i = 0; i < chunks.length; i++) {
+    if (rewriteStopped) { stopped = true; break; }
+
     progressText.textContent = `正在改写第 ${i + 1}/${chunks.length} 段…`;
     progressFill.style.width = ((i / chunks.length) * 100).toFixed(1) + "%";
 
     const context = i > 0 ? chunks[i - 1].slice(-BATCH_CONTEXT_CHARS) : "";
     const result = await doRewrite(apiKey, s, chunks[i], false, context);
 
+    if (result.stopped) { stopped = true; break; }
+
     if (!result.success) {
       progressText.textContent = `❌ 第 ${i + 1}/${chunks.length} 段失败：${result.error}`;
-      if (results.length) {
-        rewrittenText = results.join("\n\n");
-        outputEl.textContent = rewrittenText;
-        document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
-        document.getElementById("viewTabs").style.display = "flex";
-        saveHistory();
-      }
-      btn.disabled = false;
-      btn.innerHTML = "🔄 开始改写";
+      finishBatch(results, chunks.length, progressWrap, progressText, progressFill, outputEl,
+        `⚠ 第 ${i + 1} 段失败，已保留前 ${results.length} 段结果`);
+      if (cm) setRewriting(false);
       return;
     }
 
@@ -1554,17 +1944,42 @@ async function batchRewrite(apiKey) {
   }
 
   progressFill.style.width = "100%";
-  progressText.textContent = `✅ 全部完成（共 ${chunks.length} 段）`;
+  const note = stopped
+    ? `⏹ 已停止，保留已完成的 ${results.length}/${chunks.length} 段`
+    : `✅ 全部完成（共 ${chunks.length} 段）`;
+  progressText.textContent = note;
+  finishBatch(results, chunks.length, progressWrap, progressText, progressFill, outputEl, null);
+  if (cm) setRewriting(false);
+  toast(stopped ? "已停止，已保留完成的部分" : "✅ 改写完成");
+}
+
+// 分段结束后统一收尾：写回结果、存历史、做质量自检
+function finishBatch(results, total, progressWrap, progressText, progressFill, outputEl, warnText) {
+  if (!results.length) {
+    outputEl.innerHTML = '<span style="color:var(--warning)">没有生成任何内容</span>';
+    progressWrap.style.display = "none";
+    return;
+  }
   rewrittenText = results.join("\n\n");
   outputEl.textContent = rewrittenText;
   document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
   document.getElementById("viewTabs").style.display = "flex";
   switchView("result");
   saveHistory();
-  setTimeout(() => { progressWrap.style.display = "none"; }, 1500);
-  btn.disabled = false;
-  btn.innerHTML = "🔄 开始改写";
-  toast("✅ 改写完成");
+  reportQuality(originalText, rewrittenText);
+  if (warnText) toast(warnText);
+  setTimeout(() => { progressWrap.style.display = "none"; }, 1800);
+}
+
+// 从上游响应里取正文；顺便识别"只有思考内容没有正文"的情况
+function extractContent(data) {
+  const msg = (data && data.choices && data.choices[0] && data.choices[0].message) || {};
+  let text = msg.content;
+  if (Array.isArray(text)) {
+    text = text.map((p) => (typeof p === "string" ? p : (p && p.text) || "")).join("");
+  }
+  const reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";
+  return { text: String(text || ""), reasoning };
 }
 
 async function doRewrite(apiKey, s, text, animate, context) {
@@ -1574,14 +1989,17 @@ async function doRewrite(apiKey, s, text, animate, context) {
   let lastError = null;
 
   for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+    if (rewriteStopped) return { success: false, stopped: true, error: "已停止" };
+
     try {
       const cm = getCustomModel(s.model);
       if (!cm) return { success: false, error: "没有可用的模型，请先在设置里添加自定义模型" };
+
       const reqBody = {
         apiKey,
         model: cm.modelId,
         baseUrl: cm.url,
-        authType: "bearer",
+        authType: cm.auth === "apikey" ? "apikey" : "bearer",
         temperature: intensity.temperature + (retry > 0 ? retry * 0.1 : 0),
         max_tokens: estimateMaxTokens(text, currentIntensity),
         messages: buildMessages(strategy, text, context || "")
@@ -1590,7 +2008,8 @@ async function doRewrite(apiKey, s, text, animate, context) {
       const resp = await fetch("/api/rewrite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reqBody)
+        body: JSON.stringify(reqBody),
+        signal: abortController ? abortController.signal : undefined
       });
 
       const raw = await resp.text();
@@ -1606,21 +2025,43 @@ async function doRewrite(apiKey, s, text, animate, context) {
       if (!resp.ok || data.error) {
         const rawMsg = data.error && (data.error.message || data.error);
         const msg = rawMsg ? (typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg)) : `HTTP ${resp.status}`;
-        throw new Error(msg);
+        const err = new Error(msg);
+        err.status = resp.status;
+        throw err;
       }
 
-      const choice = (data.choices && data.choices[0] && data.choices[0].message) || {};
-      let result = choice.content || "";
-      if (!result) { lastError = "API 返回为空"; continue; }
+      const { text: content, reasoning } = extractContent(data);
+      let result = content;
+      if (!result.trim()) {
+        if (reasoning.trim()) {
+          // 上游只回了思考过程，不能当改写结果用
+          return {
+            success: false,
+            error: "上游只返回了思考内容（reasoning_content），没有正文。说明该模型默认开启思考模式且输出预算被占满 —— 请换一个非思考模型，或调整该服务的默认参数。"
+          };
+        }
+        lastError = "API 返回为空";
+        continue;
+      }
 
-      result = result.replace(/^```[a-zA-Z]*\s*\n/, "").replace(/\n```\s*$/, "").trim();
+      result = result.replace(/^\s*```[a-zA-Z]*\s*\n/, "").replace(/\n```\s*$/, "")
+        .replace(/^(改写后|改写结果|结果)[：:]\s*/, "").trim();
       if (result.length < text.length * 0.3) { lastError = "返回过短"; continue; }
 
       if (animate) await typewriterEffect(document.getElementById("outputArea"), result);
       return { success: true, text: result };
     } catch (err) {
+      if (err.name === "AbortError") return { success: false, stopped: true, error: "已停止" };
       lastError = err.message;
-      if (retry < MAX_RETRIES) await new Promise(r => setTimeout(r, 1500));
+
+      // 分类退避：参数/鉴权类错误重试没有意义，直接抛出
+      if (err.status && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429) {
+        return { success: false, error: lastError };
+      }
+      if (retry < MAX_RETRIES) {
+        const wait = err.status === 429 ? 4000 * (retry + 1) : 1500 * (retry + 1);
+        await new Promise(r => setTimeout(r, wait));
+      }
     }
   }
 

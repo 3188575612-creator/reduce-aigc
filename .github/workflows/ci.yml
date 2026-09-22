@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 项目零运行时依赖，不需要 npm ci（也没有 lockfile）
+      - name: 代理层回归自测
+        run: npm test
+
+      - name: 本地端到端（真起 server.js + mock 上游）
+        run: npm run test:e2e
+
+      - name: 发布面规则是否跟上文件变化
+        run: |
+          npm run gen:redirects
+          git diff --exit-code _redirects || {
+            echo "::error::_redirects 与 git ls-files 不一致，请在本地跑 npm run gen:redirects 后提交";
+            exit 1;
+          }
+
+      - name: 无头浏览器检查（用 runner 自带 Chrome）
+        run: npm run test:ui

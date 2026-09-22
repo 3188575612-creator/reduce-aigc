@@ -12,4 +12,5 @@
 /server.js / 302
 /worker.js / 302
 /wrangler.jsonc / 302
+/.github/workflows/* / 302
 /scripts/* / 302

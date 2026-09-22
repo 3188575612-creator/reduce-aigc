@@ -12,13 +12,19 @@ const URL = "http://127.0.0.1:3456/";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const BROWSERS = [
+  process.env.CHROME_PATH,
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
   "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-];
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/chromium",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+].filter(Boolean);
 const browser = BROWSERS.find((p) => fs.existsSync(p));
 if (!browser) {
-  console.log("NO_BROWSER_FOUND");
+  console.log("NO_BROWSER_FOUND（可用 CHROME_PATH 指定浏览器路径）");
   process.exit(2);
 }
 
@@ -36,6 +42,7 @@ const profile = path.join(os.tmpdir(), `aigc-cdp-${port}`);
 const child = spawn(browser, [
   "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
   "--hide-scrollbars", "--window-size=1440,900",
+  ...(process.env.CI ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
   `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "about:blank",
 ], { stdio: "ignore" });
 
@@ -136,8 +143,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.0", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.0\.\d+/.test(v)],
+    ["代理健康检查显示 v3.1", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.1\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -189,6 +196,83 @@ try {
       return JSON.stringify({ model: after.model, count: after.customModels.length });
     })()`,
       (v) => { const o = JSON.parse(v); return o.model === null && o.count === 0; }],
+    ["鉴权方式可选并会保存", `(() => {
+      document.getElementById("cmName").value = "api-key 服务";
+      document.getElementById("cmUrl").value = "https://api.example.com/v1/chat/completions";
+      document.getElementById("cmId").value = "m-1";
+      document.getElementById("cmAuth").value = "apikey";
+      addCustomModel();
+      const m = (loadSettings().customModels || []).find(x => x.name === "api-key 服务");
+      return JSON.stringify({ auth: m ? m.auth : null, authInputReset: document.getElementById("cmAuth").value });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.auth === "apikey" && o.authInputReset === "bearer"; }],
+    ["地址非 http(s) 开头会被拦下", `(() => {
+      const before = loadSettings().customModels.length;
+      document.getElementById("cmName").value = "bad";
+      document.getElementById("cmUrl").value = "not-a-url";
+      document.getElementById("cmId").value = "x";
+      addCustomModel();
+      return loadSettings().customModels.length === before;
+    })()`,
+      (v) => v === true],
+    ["extractContent 支持 content 为数组", `extractContent({ choices: [{ message: { content: [{ text: "甲" }, { text: "乙" }] } }] }).text`,
+      (v) => v === "甲乙"],
+    ["extractContent 能识别「只回思考内容」", `(() => {
+      const r = extractContent({ choices: [{ message: { content: "", reasoning_content: "我在想" } }] });
+      return JSON.stringify({ empty: r.text === "", reasoning: r.reasoning === "我在想" });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.empty && o.reasoning; }],
+    ["中文按字切成 token（对比视图才细）", `(() => {
+      const t = tokenize("本系统采用");
+      return JSON.stringify({ count: t.length, first: t[0] });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.count === 5 && o.first === "本"; }],
+    ["英文与数字仍按词成块", `JSON.stringify(tokenize("Spring Boot 2.6.13 很快"))`,
+      (v) => { const o = JSON.parse(v); return o.includes("Spring") && o.includes("2.6.13"); }],
+    ["下划线与短横线连的标识符保持完整", `JSON.stringify(tokenize("exam_grade gpt-4 命中"))`,
+      (v) => { const o = JSON.parse(v); return o.includes("exam_grade") && o.includes("gpt-4"); }],
+    ["技术细节提取含版本号、表名、百分比", `JSON.stringify(extractTechnicalTokens("使用 Spring Boot 2.6.13，表 exam_grade 命中率 92%").sort())`,
+      (v) => { const o = JSON.parse(v); return o.includes("Spring") && o.includes("2.6.13") && o.includes("exam_grade"); }],
+    ["质量自检会点名丢失的技术信息", `(() => {
+      reportQuality("使用 Spring Boot 2.6.13 与表 exam_grade", "本系统采用后端框架，数据库中有成绩表");
+      const el = document.getElementById("qualityHint");
+      return JSON.stringify({ shown: el.classList.contains("show"), v: el.textContent.includes("2.6.13"), t: el.textContent.includes("exam_grade") });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.shown && o.v && o.t; }],
+    ["相似度：完全相同 100%，完全不同 0%", `JSON.stringify([textSimilarity("完全一样的一段文字", "完全一样的一段文字"), textSimilarity("甲乙丙丁戊己", "壬癸子丑寅卯")])`,
+      (v) => { const [a, b] = JSON.parse(v); return a === 100 && b === 0; }],
+    ["相似度：小幅改动落在合理区间", `(() => {
+      const s = textSimilarity("本系统采用前后端分离架构，后端基于 Spring Boot 2.6.13。", "本系统采用前后端分离架构，后端基于 Spring Boot 2.6.13 实现。");
+      return s;
+    })()`,
+      (v) => typeof v === "number" && v >= 70 && v < 100],
+    ["Word 导出 / 再降一次 / 停止入口都在", `JSON.stringify([typeof downloadWord, typeof polishAgain, typeof stopRewrite, typeof reportQuality])`,
+      (v) => v === JSON.stringify(["function", "function", "function", "function"])],
+    ["停止按钮默认隐藏、改写时才出现", `getComputedStyle(document.getElementById("stopBtn")).display`,
+      (v) => v === "none"],
+    ["草稿：写入后能恢复", `(() => {
+      setInputText("这是一段待改写的草稿文本");
+      saveDraft();
+      document.getElementById("inputText").value = "";
+      const ok = restoreDraft();
+      return JSON.stringify({ ok, value: document.getElementById("inputText").value });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.ok === true && o.value.includes("草稿文本"); }],
+    ["草稿：关掉开关后立即清除", `(() => {
+      const box = document.getElementById("saveDraft");
+      box.checked = false;
+      box.dispatchEvent(new Event("change"));
+      saveDraft();
+      return JSON.stringify({ draft: localStorage.getItem("aigc_draft"), setting: loadSettings().saveDraft });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.draft === null && o.setting === false; }],
+    ["无障碍：图标按钮有 aria-label，toast 有 live 区", `(() => {
+      const btns = [...document.querySelectorAll(".btn-settings")];
+      const labeled = btns.filter(b => b.getAttribute("aria-label")).length;
+      const toast = document.getElementById("toast");
+      return JSON.stringify({ total: btns.length, labeled, live: toast.getAttribute("aria-live") });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.total === o.labeled && o.total === 4 && o.live === "polite"; }],
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',

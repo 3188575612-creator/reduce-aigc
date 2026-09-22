@@ -299,7 +299,7 @@ check("前端代码里也不该再有预设模型 id",
     fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
   ), "index.html 仍引用预设模型 id");
 
-check("版本号已升到 3.0.x", VERSION.startsWith("3.0."), VERSION);
+check("版本号已升到 3.1.x", VERSION.startsWith("3.1."), VERSION);
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 check("package.json 与代理版本一致（避免 health 报的版本对不上）",
