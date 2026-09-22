@@ -142,4 +142,7 @@ server.listen(PORT, HOST, () => {
   if (!process.env.ALLOWED_ORIGINS) {
     console.log("提示: 未设置 ALLOWED_ORIGINS，仅放行同源与本地环回请求。");
   }
+  if (!process.env.ALLOW_PRIVATE_UPSTREAM) {
+    console.log("提示: 未开启 ALLOW_PRIVATE_UPSTREAM，请求内网/本机模型地址会被拒绝（连 Ollama 等需设为 1）。");
+  }
 });

@@ -3,9 +3,13 @@
 import http from "node:http";
 import fs from "node:fs";
 import {
-  handleRewrite, VERSION, MODEL_ENDPOINTS,
+  handleRewrite, VERSION, UPSTREAM_PROFILES,
   resolveTarget, applyModelLimits, buildRequestBody,
 } from "../functions/_lib/rewrite-handler.mjs";
+
+// 注意：不能 import MODEL_ENDPOINTS 来判断它是否被删（缺失的具名导出会让模块链接失败），
+// 所以改为直接扫源码。
+const handlerSrc = fs.readFileSync(new URL("../functions/_lib/rewrite-handler.mjs", import.meta.url), "utf8");
 
 const MSG_OK = "改写后的占位文本，用于长度校验通过。".repeat(6);
 
@@ -76,7 +80,7 @@ async function call(payload, opts = {}) {
     headers,
     body: method === "POST" ? JSON.stringify(payload) : undefined,
   });
-  return handleRewrite(req, { UPSTREAM_TIMEOUT_MS: "800", ...(opts.env || {}) });
+  return handleRewrite(req, { UPSTREAM_TIMEOUT_MS: "800", ALLOW_PRIVATE_UPSTREAM: "1", ...(opts.env || {}) });
 }
 
 function validPayload(extra = {}) {
@@ -96,8 +100,7 @@ const health = await call(null, { method: "GET" });
 const healthBody = await health.json();
 check("GET 返回健康信息", health.status === 200 && healthBody.ok === true && healthBody.version === VERSION,
   `status=${health.status} body=${JSON.stringify(healthBody).slice(0, 120)}`);
-check("健康信息含模型清单", Array.isArray(healthBody.models) && healthBody.models.includes("deepseek-v4-pro"),
-  JSON.stringify(healthBody.models));
+check("健康信息不含内置模型清单", healthBody.models === "user-supplied", JSON.stringify(healthBody.models));
 
 let r = await call({ messages: [] });
 check("缺少 apiKey -> 400", r.status === 400, `status=${r.status}`);
@@ -124,7 +127,7 @@ check("正常改写 -> 200 且返回正文", r.status === 200 && body.choices?.[
   `status=${r.status} body=${JSON.stringify(body).slice(0, 160)}`);
 check("bearer 鉴权头正确", upstreamCalls.at(-1)?.headers?.authorization === "Bearer test-key-123",
   JSON.stringify(upstreamCalls.at(-1)?.headers));
-check("默认模型透传 deepseek-v4-pro", body._echo?.model === "deepseek-v4-pro", JSON.stringify(body._echo));
+check("用户填的 model 原样透传给上游", body._echo?.model === "deepseek-v4-pro", JSON.stringify(body._echo));
 
 r = await call(validPayload({ authType: "apikey" }));
 body = await r.json();
@@ -224,47 +227,79 @@ check("空 body POST -> 400 而非崩溃", r.status === 400, `status=${r.status}
 
 upstream.close();
 
-// ---------- 端点配置与参数夹取：纯逻辑，不需要网络 ----------
-const presets = Object.keys(MODEL_ENDPOINTS);
-check("预置端点全部为 https", presets.every((m) => MODEL_ENDPOINTS[m].url.startsWith("https://")),
-  presets.filter((m) => !MODEL_ENDPOINTS[m].url.startsWith("https://")).join(","));
-check("鉴权类型仅 bearer / apikey", presets.every((m) => ["bearer", "apikey"].includes(MODEL_ENDPOINTS[m].auth)),
-  presets.map((m) => `${m}=${MODEL_ENDPOINTS[m].auth}`).join(","));
-check("GLM 端点与官方文档一致",
-  MODEL_ENDPOINTS["glm-4.7"].url === "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-  MODEL_ENDPOINTS["glm-4.7"].url);
-check("Qwen 走 compatible-mode 路径",
-  MODEL_ENDPOINTS["qwen-plus"].url === "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-  MODEL_ENDPOINTS["qwen-plus"].url);
-check("MiMo 使用 api-key 头 + mimo-v2.5-pro",
-  MODEL_ENDPOINTS["xiaomimimo"].auth === "apikey" && MODEL_ENDPOINTS["xiaomimimo"].name === "mimo-v2.5-pro",
-  `${MODEL_ENDPOINTS["xiaomimimo"].auth} / ${MODEL_ENDPOINTS["xiaomimimo"].name}`);
+// ---------- 用户自定义模型 / 参数适配：纯逻辑，不需要网络 ----------
+check("health 不再暴露模型清单（模型由用户自带）",
+  (await (await call(null, { method: "GET" })).json()).models === "user-supplied", "health.models 仍像清单");
 
-check("未知模型回落到 deepseek-v4-pro",
-  resolveTarget("not-exist-model").target.name === "deepseek-v4-pro", "回落失败");
-check("自带 baseUrl 标记为 custom",
-  resolveTarget("m", "https://x.example.com/v1/chat/completions").target.custom === true, "未标记 custom");
+const noBase = resolveTarget("any", "", "bearer");
+check("缺 baseUrl -> 明确报错（不内置任何模型）",
+  typeof noBase.error === "string" && noBase.error.includes("baseUrl"), JSON.stringify(noBase));
+const noBaseHttp = await call({ apiKey: "k", messages: [{ role: "user", content: "x" }] });
+check("HTTP 层面缺 baseUrl -> 400", noBaseHttp.status === 400, `status=${noBaseHttp.status}`);
+
+const openTarget = resolveTarget("m", "https://x.example.com/v1/chat/completions");
+check("陌生域名不套用任何参数约束", openTarget.target.profile === null, JSON.stringify(openTarget.target.profile));
+
+const glmTarget = resolveTarget("glm-4.7", "https://open.bigmodel.cn/api/paas/v4/chat/completions");
+check("官方 GLM 域名命中参数适配", glmTarget.target.profile?.label === "智谱 GLM", JSON.stringify(glmTarget.target.profile));
+const mimoTarget = resolveTarget("mimo-v2.5-pro", "https://api.xiaomimimo.com/v1/chat/completions");
+check("官方 MiMo 域名命中参数适配", mimoTarget.target.profile?.label === "小米 MiMo", JSON.stringify(mimoTarget.target.profile));
+const qwenTarget = resolveTarget("qwen-plus", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
+check("官方 DashScope 域名命中参数适配", qwenTarget.target.profile?.label === "阿里 DashScope", JSON.stringify(qwenTarget.target.profile));
+
+check("域名匹配不误伤（bigmodel.cn.evil.com 不命中）",
+  resolveTarget("m", "https://bigmodel.cn.evil.com/v1/chat/completions").target.profile === null, "误命中");
+check("域名匹配不误伤（notbigmodel.cn 不命中）",
+  resolveTarget("m", "https://notbigmodel.cn/v1/chat/completions").target.profile === null, "误命中");
+check("子域名可命中（open.bigmodel.cn）",
+  resolveTarget("m", "https://open.bigmodel.cn/v1/chat/completions").target.profile?.label === "智谱 GLM", "子域名未命中");
+
 check("自定义地址非法时返回错误而非静默回落",
   !!resolveTarget("m", "http://evil.example.com/v1").error, "未拦截");
 
-const glmLimits = applyModelLimits(MODEL_ENDPOINTS["glm-4.7"], 1.8, 20000);
+// SSRF：现在所有请求都打到用户给的地址，必须默认挡住内网
+for (const [label, url] of [
+  ["本机环回 http", "http://127.0.0.1:9999/v1/chat/completions"],
+  ["内网 https", "https://192.168.1.10/v1/chat/completions"],
+  ["私网网段 https", "https://10.0.0.5/v1/chat/completions"],
+  ["localhost", "http://localhost:9999/v1/chat/completions"],
+  ["链路本地 https", "https://169.254.169.254/v1/chat/completions"],
+]) {
+  check(`SSRF 默认拦截：${label}`, !!resolveTarget("m", url).error, "未拦截");
+}
+check("显式开启 ALLOW_PRIVATE_UPSTREAM 后放行本机地址",
+  !resolveTarget("m", "http://127.0.0.1:9999/v1/chat/completions", "bearer", true).error, "误拦");
+check("公网地址要求 https",
+  !!resolveTarget("m", "http://api.example.com/v1/chat/completions").error, "http 公网地址未拦截");
+
+const glmLimits = applyModelLimits(glmTarget.target, 1.8, 20000);
 check("GLM 温度夹到 1.0、max_tokens 夹到 8192",
   glmLimits.temperature === 1.0 && glmLimits.maxTokens === 8192, JSON.stringify(glmLimits));
-const mimoLimits = applyModelLimits(MODEL_ENDPOINTS["xiaomimimo"], 1.8, 5000);
+const mimoLimits = applyModelLimits(mimoTarget.target, 1.8, 5000);
 check("MiMo 温度夹到官方上限 1.5",
   mimoLimits.temperature === 1.5 && mimoLimits.maxTokens === 5000, JSON.stringify(mimoLimits));
-const customLimits = applyModelLimits({ custom: true }, 1.8, 20000);
-check("自定义模型不套用预置约束",
-  customLimits.temperature === 1.8 && customLimits.maxTokens === 20000, JSON.stringify(customLimits));
+const openLimits = applyModelLimits(openTarget.target, 1.8, 20000);
+check("陌生域名不夹取温度与 token 上限",
+  openLimits.temperature === 1.8 && openLimits.maxTokens === 20000, JSON.stringify(openLimits));
 
 const probeMessages = [{ role: "user", content: "x" }];
-const glmBody = buildRequestBody(MODEL_ENDPOINTS["glm-4.7"], probeMessages, 1, 100, false);
+const glmBody = buildRequestBody(glmTarget.target, probeMessages, 1, 100, false);
 check("GLM 请求显式关闭思考模式", glmBody.thinking?.type === "disabled", JSON.stringify(glmBody).slice(0, 140));
-const mimoBody = buildRequestBody(MODEL_ENDPOINTS["xiaomimimo"], probeMessages, 1, 100, false);
+const mimoBody = buildRequestBody(mimoTarget.target, probeMessages, 1, 100, false);
 check("MiMo 请求显式关闭思考模式", mimoBody.thinking?.type === "disabled", JSON.stringify(mimoBody).slice(0, 140));
-const dsBody = buildRequestBody(MODEL_ENDPOINTS["deepseek-v4-pro"], probeMessages, 1, 100, false);
-check("DeepSeek 请求不带 thinking 字段", !("thinking" in dsBody), JSON.stringify(dsBody).slice(0, 140));
-check("版本号已升到 2.1.x", VERSION.startsWith("2.1."), VERSION);
+const openBody = buildRequestBody(openTarget.target, probeMessages, 1, 100, false);
+check("陌生域名请求不带 thinking 字段", !("thinking" in openBody), JSON.stringify(openBody).slice(0, 140));
+
+for (const p of UPSTREAM_PROFILES) {
+  check(`参数适配项「${p.label}」含域名匹配规则`, p.match instanceof RegExp, String(p.match));
+}
+check("代理已无内置模型端点表", !/export const MODEL_ENDPOINTS/.test(handlerSrc), "MODEL_ENDPOINTS 仍存在");
+check("前端代码里也不该再有预设模型 id",
+  !/"(deepseek-v4-pro|deepseek-v4-flash|glm-4\.7|qwen-turbo|qwen-plus|xiaomimimo)"/.test(
+    fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
+  ), "index.html 仍引用预设模型 id");
+
+check("版本号已升到 3.0.x", VERSION.startsWith("3.0."), VERSION);
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 check("package.json 与代理版本一致（避免 health 报的版本对不上）",

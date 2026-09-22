@@ -2,42 +2,33 @@
 // 运行环境需提供 Web 标准 API：fetch、Request、Response、URL、AbortController。
 // 放在 functions/_lib/ 下作为源码模块；Pages 的路由面由仓库根的 _routes.json 限定在 /api/*。
 
-export const VERSION = "2.1.2";
+export const VERSION = "3.0.0";
 
-// 端点与鉴权均已对照各厂商官方文档核对（2026-09）。
-// maxTokens / maxTemperature：上游硬约束，超出会报错，因此在此夹取。
-// extraBody：模型专属参数。GLM-4.7 与 MiMo 默认会开启思考模式，推理 token 会挤占 max_tokens
-// 导致正文返回为空或过短，且本工具做的是风格改写而非推理，故显式关闭。
-export const MODEL_ENDPOINTS = {
-  "deepseek-v4-pro": {
-    url: "https://api.deepseek.com/v1/chat/completions",
-    name: "deepseek-v4-pro", auth: "bearer",
-  },
-  "deepseek-v4-flash": {
-    url: "https://api.deepseek.com/v1/chat/completions",
-    name: "deepseek-v4-flash", auth: "bearer",
-  },
-  "glm-4.7": {
-    url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    name: "glm-4.7", auth: "bearer",
+// 本服务不内置任何模型：端点、模型 ID、密钥全部由用户在自己的浏览器里配置后随请求带来。
+// 下面这份是按上游域名匹配的「参数适配」，不是模型清单 —— 用户填官方地址时会自动套用已知约束，
+// 填别的地址则不套用。约束依据来自各厂商官方文档（2026-09 核对）：
+// maxTokens / maxTemperature 是上游硬约束，超出会报错，故在此夹取。
+// extraBody：GLM 与 MiMo 默认会开启思考模式，推理 token 会挤占 max_tokens 导致正文返回为空或过短，
+// 而本工具做的是风格改写而非推理，故显式关闭。
+export const UPSTREAM_PROFILES = [
+  {
+    label: "智谱 GLM",
+    match: /(^|\.)bigmodel\.cn$/i,
     maxTokens: 8192, maxTemperature: 1.0,
     extraBody: { thinking: { type: "disabled" } },
   },
-  "qwen-turbo": {
-    url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-    name: "qwen-turbo", auth: "bearer", maxTokens: 4096,
-  },
-  "qwen-plus": {
-    url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-    name: "qwen-plus", auth: "bearer", maxTokens: 4096,
-  },
-  "xiaomimimo": {
-    url: "https://api.xiaomimimo.com/v1/chat/completions",
-    name: "mimo-v2.5-pro", auth: "apikey",
+  {
+    label: "小米 MiMo",
+    match: /(^|\.)xiaomimimo\.com$/i,
     maxTemperature: 1.5,
     extraBody: { thinking: { type: "disabled" } },
   },
-};
+  {
+    label: "阿里 DashScope",
+    match: /(^|\.)dashscope\.aliyuncs\.com$/i,
+    maxTokens: 4096,
+  },
+];
 
 const DEFAULT_TIMEOUT_MS = 25000;
 const MAX_BODY_BYTES = 256 * 1024;
@@ -54,6 +45,24 @@ function json(body, status = 200, extra = {}) {
 
 function isLoopbackHost(host) {
   return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+}
+
+// 内网/保留地址：现在所有请求都打到用户自定义的地址，必须挡住 SSRF 面。
+// 需要连本机或内网自建模型（Ollama 等）时，用 ALLOW_PRIVATE_UPSTREAM=1 显式开启。
+export function isPrivateHost(hostname) {
+  const h = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!h) return true;
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return true;
+  if (h === "::1" || h === "0.0.0.0" || h === "::" ) return true;
+  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!v4) return false;
+  const [a, b] = [Number(v4[1]), Number(v4[2])];
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
 }
 
 // 未配置 ALLOWED_ORIGINS 时：只放行同源与本地环回，跨站一律拒绝。
@@ -108,12 +117,21 @@ function checkRateLimit(ip, limit) {
   return { ok: true };
 }
 
-function normalizeBaseUrl(baseUrl) {
+function normalizeBaseUrl(baseUrl, allowPrivate) {
   let u;
   try { u = new URL(baseUrl); } catch { return { error: "自定义模型地址不是合法 URL" }; }
-  const httpsOk = u.protocol === "https:";
-  const loopbackOk = u.protocol === "http:" && isLoopbackHost(u.hostname);
-  if (!httpsOk && !loopbackOk) return { error: "自定义模型地址必须是 https（本机环回允许 http）" };
+
+  const priv = isPrivateHost(u.hostname);
+  if (priv && !allowPrivate) {
+    return { error: "自定义模型地址不能是内网/本机地址；如确需（如本机自建模型），请让服务端设置 ALLOW_PRIVATE_UPSTREAM=1" };
+  }
+  if (!priv && u.protocol !== "https:") {
+    return { error: "自定义模型地址必须是 https" };
+  }
+  if (priv && u.protocol !== "https:" && u.protocol !== "http:") {
+    return { error: "自定义模型地址协议不支持" };
+  }
+
   let path = u.pathname.replace(/\/+$/, "");
   if (/\/chat\/completions$/.test(path)) {
     // 已是完整端点，原样使用
@@ -125,7 +143,7 @@ function normalizeBaseUrl(baseUrl) {
   u.pathname = path;
   u.search = "";
   u.hash = "";
-  return { url: u.toString() };
+  return { url: u.toString(), hostname: u.hostname.toLowerCase() };
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -134,29 +152,33 @@ function clampNumber(value, min, max, fallback) {
   return Math.min(max, Math.max(min, n));
 }
 
-// 决定请求发往哪个端点。custom=true 表示用户自带 baseUrl，此时不套用预置模型的硬约束。
-export function resolveTarget(model, baseUrl, authType) {
-  if (baseUrl) {
-    const norm = normalizeBaseUrl(String(baseUrl));
-    if (norm.error) return { error: norm.error };
-    return {
-      target: {
-        url: norm.url,
-        name: String(model || "custom"),
-        auth: authType === "apikey" ? "apikey" : "bearer",
-        custom: true,
-      },
-    };
+// 决定请求发往哪个端点。不再有内置模型：baseUrl 必填（用户自定义模型）。
+export function resolveTarget(model, baseUrl, authType, allowPrivate = false) {
+  if (!baseUrl || !String(baseUrl).trim()) {
+    return { error: "缺少 baseUrl：本服务不内置模型，请先在设置里添加自定义模型（需填完整 API 地址）" };
   }
-  const target = MODEL_ENDPOINTS[model] || MODEL_ENDPOINTS["deepseek-v4-pro"];
-  return { target };
+  const norm = normalizeBaseUrl(String(baseUrl), allowPrivate);
+  if (norm.error) return { error: norm.error };
+  const profile = UPSTREAM_PROFILES.find((p) => p.match.test(norm.hostname)) || null;
+  return {
+    target: {
+      url: norm.url,
+      name: String(model || "custom"),
+      auth: authType === "apikey" ? "apikey" : "bearer",
+      hostname: norm.hostname,
+      profile,
+    },
+  };
 }
 
 export function applyModelLimits(target, temperature, maxTokens) {
   let temp = clampNumber(temperature, 0, 2, 0.9);
-  if (!target.custom && target.maxTemperature) temp = Math.min(temp, target.maxTemperature);
   let tokens = Math.round(clampNumber(maxTokens, 64, 32000, 4096));
-  if (!target.custom && target.maxTokens) tokens = Math.min(tokens, target.maxTokens);
+  const profile = target.profile;
+  if (profile) {
+    if (profile.maxTemperature) temp = Math.min(temp, profile.maxTemperature);
+    if (profile.maxTokens) tokens = Math.min(tokens, profile.maxTokens);
+  }
   return { temperature: temp, maxTokens: tokens };
 }
 
@@ -167,7 +189,7 @@ export function buildRequestBody(target, messages, temperature, maxTokens, strea
     temperature,
     max_tokens: maxTokens,
     stream: !!stream,
-    ...(target.extraBody || {}),
+    ...((target.profile && target.profile.extraBody) || {}),
   };
 }
 
@@ -190,7 +212,7 @@ export function handleHealth(cors = {}) {
     ok: true,
     service: "reduce-aigc-proxy",
     version: VERSION,
-    models: Object.keys(MODEL_ENDPOINTS),
+    models: "user-supplied",
     time: new Date().toISOString(),
   }, 200, cors);
 }
@@ -247,7 +269,7 @@ export async function handleRewrite(request, env = {}) {
   }
 
   const {
-    apiKey, model = "deepseek-v4-pro", baseUrl, authType,
+    apiKey, model, baseUrl, authType,
     messages, temperature, max_tokens, stream,
   } = body;
 
@@ -263,7 +285,8 @@ export async function handleRewrite(request, env = {}) {
 
   for (const m of messages) if (!m.role) m.role = "user";
 
-  const resolved = resolveTarget(model, baseUrl, authType);
+  const allowPrivate = env.ALLOW_PRIVATE_UPSTREAM === "1" || env.ALLOW_PRIVATE_UPSTREAM === "true";
+  const resolved = resolveTarget(model, baseUrl, authType, allowPrivate);
   if (resolved.error) return json({ error: resolved.error }, 400, cors);
   const target = resolved.target;
 

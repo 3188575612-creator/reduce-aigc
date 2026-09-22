@@ -392,17 +392,13 @@
       <div class="divider"></div>
 
       <!-- Model -->
-      <div class="section-title">🤖 模型选择</div>
+      <div class="section-title">🤖 当前模型</div>
       <select class="model-select" id="modelSelect" onchange="saveModel()">
-        <option value="deepseek-v4-pro">DeepSeek V4 Pro — 高级模型（推荐）</option>
-        <option value="deepseek-v4-flash">DeepSeek V4 Flash — 快速模型</option>
-        <option value="glm-4.7">GLM-4.7 — 智谱AI</option>
-        <option value="qwen-turbo">Qwen-Turbo — 通义千问</option>
-        <option value="qwen-plus">Qwen-Plus — 通义千问增强</option>
-        <option value="xiaomimimo">Xiaomi MiMo — 小米大模型</option>
+        <option value="">（还没有自定义模型）</option>
       </select>
       <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
-        自定义模型需自行获取对应服务的 Key
+        本工具不内置任何模型：请在下方添加你使用的服务（名称、完整 API 地址、模型 ID），
+        并填入该服务的 Key。填官方地址时会自动套用已知的参数约束。
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
         <button class="btn btn-ghost btn-sm" onclick="testConnection()">🔌 测试当前模型</button>
@@ -412,14 +408,16 @@
       <div class="divider"></div>
 
       <!-- Custom Models -->
-      <div class="section-title">🔧 自定义模型</div>
+      <div class="section-title">🔧 添加 / 管理模型</div>
       <div class="custom-model-form">
         <input class="input" id="cmName" placeholder="名称" style="flex:1;min-width:60px;">
         <input class="input" id="cmUrl" placeholder="API完整地址" style="flex:2;min-width:120px;">
         <input class="input" id="cmId" placeholder="模型ID" style="flex:1;min-width:80px;">
         <button class="btn btn-primary btn-sm" id="cmAddBtn" onclick="addCustomModel()">+</button>
       </div>
-      <div style="font-size:10px;color:var(--text-secondary);margin-top:2px;">例: https://api.deepseek.com/v1/chat/completions</div>
+      <div style="font-size:10px;color:var(--text-secondary);margin-top:2px;">
+        例: https://api.deepseek.com/v1/chat/completions（只填到 /v1 会自动补 /chat/completions）
+      </div>
       <div id="customModelList" style="margin-top:8px;"></div>
       </div><!-- /stab-keys -->
 
@@ -483,7 +481,7 @@ const KEYS_KEY = "aigc_keys";
 function defaultSettings() {
   return {
     activeKeyId: null,
-    model: "deepseek-v4-pro",
+    model: null,
     customModels: [],
     rememberKeys: true
   };
@@ -590,7 +588,7 @@ const INTENSITY = {
 const MAX_TOKENS_CAP = 8192;
 const BATCH_CHUNK_SIZE = 500;
 const BATCH_CONTEXT_CHARS = 120;
-const PROXY_VERSION_EXPECTED = "2.";
+const PROXY_VERSION_EXPECTED = "3.";
 
 function estimateMaxTokens(text, intensity) {
   const mult = (INTENSITY[intensity] || INTENSITY.normal).maxMultiplier;
@@ -637,9 +635,10 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("inputCount").textContent = document.getElementById("inputText").value.length + " 字";
   });
 
-  // 恢复模型选择
+  // 恢复模型选择（下拉项由自定义模型渲染）
   const s = loadSettings();
-  document.getElementById("modelSelect").value = s.model || "deepseek-v4-pro";
+  migratePresetModel(s);
+  renderCustomModels();
 
   // Key 存储位置开关
   const rememberBox = document.getElementById("rememberKeys");
@@ -747,17 +746,31 @@ function renderCustomModels() {
     `).join("");
   }
   const sel = document.getElementById("modelSelect");
-  const presets = [
-    '<option value="deepseek-v4-pro">DeepSeek V4 Pro</option>',
-    '<option value="deepseek-v4-flash">DeepSeek V4 Flash</option>',
-    '<option value="glm-4.7">GLM-4.7 · 智谱AI</option>',
-    '<option value="qwen-turbo">Qwen-Turbo · 通义千问</option>',
-    '<option value="qwen-plus">Qwen-Plus · 通义千问增强</option>',
-    '<option value="xiaomimimo">MiMo · 小米大模型</option>'
-  ];
-  const customs = models.map(m => `<option value="${m.id}">🔧 ${escapeHtml(m.name)}</option>`);
-  sel.innerHTML = presets.join("") + customs.join("");
+  if (!models.length) {
+    sel.innerHTML = '<option value="">（还没有自定义模型）</option>';
+    if (s.model) { s.model = null; saveSettings(s); }
+    return;
+  }
+  sel.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join("");
+  if (!models.some(m => m.id === s.model)) {
+    s.model = models[0].id;
+    saveSettings(s);
+  }
   sel.value = s.model;
+}
+
+// 老版本内置过预设模型，配置里可能残留 deepseek-v4-pro 这类 id。
+// 现在预设已移除：有自定义模型就切到第一个，否则置空并提示一次。
+function migratePresetModel(s) {
+  const models = s.customModels || [];
+  if (s.model && models.some(m => m.id === s.model)) return false;
+  const hadPreset = !!s.model;
+  s.model = models.length ? models[0].id : null;
+  saveSettings(s);
+  if (hadPreset) {
+    toast(models.length ? "预设模型已移除，已切到你自己的模型" : "预设模型已移除，请添加你自己的模型");
+  }
+  return hadPreset;
 }
 
 function addCustomModel() {
@@ -769,7 +782,8 @@ function addCustomModel() {
   const s = loadSettings();
   if (!s.customModels) s.customModels = [];
 
-  if (cmEditId) {
+  const wasEdit = !!cmEditId;
+  if (wasEdit) {
     const idx = s.customModels.findIndex(m => m.id === cmEditId);
     if (idx >= 0) s.customModels[idx] = { id: cmEditId, name, url, modelId };
     cmEditId = null;
@@ -778,12 +792,17 @@ function addCustomModel() {
     s.customModels.push({ id: "cm_" + Date.now(), name, url, modelId });
   }
 
+  // 没有选中模型（首次添加或刚删空）时自动选中，省一步操作
+  if (!s.model || !s.customModels.some(m => m.id === s.model)) {
+    s.model = s.customModels[s.customModels.length - 1].id;
+  }
+
   saveSettings(s);
   document.getElementById("cmName").value = "";
   document.getElementById("cmUrl").value = "";
   document.getElementById("cmId").value = "";
   renderCustomModels();
-  toast(cmEditId ? "已更新" : "已添加");
+  toast(wasEdit ? "已更新" : "已添加");
 }
 
 function editCustomModel(id) {
@@ -807,7 +826,7 @@ function delCustomModel(id) {
   }
   const s = loadSettings();
   s.customModels = (s.customModels || []).filter(m => m.id !== id);
-  if (s.model === id) s.model = "deepseek-v4-pro";
+  if (s.model === id) s.model = s.customModels.length ? s.customModels[0].id : null;
   saveSettings(s);
   renderCustomModels();
 }
@@ -909,17 +928,19 @@ async function testConnection() {
 
   const s = loadSettings();
   const cm = getCustomModel(s.model);
-  const label = cm ? cm.name : s.model;
+  if (!cm) return toast("请先在设置里添加自定义模型");
+  const label = cm.name;
   el.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在测试 ' + escapeHtml(label) + '…</span>';
 
   const body = {
     apiKey: key.key,
-    model: cm ? cm.modelId : s.model,
+    model: cm.modelId,
+    baseUrl: cm.url,
+    authType: "bearer",
     temperature: 0,
     max_tokens: 32,
     messages: [{ role: "user", content: "只回复两个字：可以" }]
   };
-  if (cm) { body.baseUrl = cm.url; body.authType = "bearer"; }
 
   const started = Date.now();
   try {
@@ -951,6 +972,13 @@ async function startRewrite() {
   const activeKey = getActiveKey();
   if (!activeKey) {
     toast("请先配置 API Key（点击 ⚙）");
+    openSettings();
+    return;
+  }
+
+  const cm = getCustomModel(loadSettings().model);
+  if (!cm) {
+    toast("请先添加你自己的模型（名称 + API 地址 + 模型 ID）");
     openSettings();
     return;
   }
@@ -1322,7 +1350,8 @@ async function runDetect() {
 
   const s = loadSettings();
   const cm = getCustomModel(s.model);
-  const detectModel = cm ? cm.modelId : (s.model || "deepseek-v4-pro");
+  if (!cm) return toast("请先在设置里添加自定义模型");
+  const detectModel = cm.modelId;
   const sentences = rewrittenText.split(/([。；!?！？\n])/g).reduce((acc, cur, i, arr) => {
     if (i % 2 === 0 && cur.trim()) acc.push(cur.trim());
     else if (i % 2 === 1 && acc.length > 0) acc[acc.length - 1] += cur;
@@ -1337,6 +1366,8 @@ async function runDetect() {
     const detectBody = {
       apiKey,
       model: detectModel,
+      baseUrl: cm.url,
+      authType: "bearer",
       temperature: 0.2,
       max_tokens: 1024,
       messages: [
@@ -1344,7 +1375,6 @@ async function runDetect() {
         { role: "user", content: `分析以下文本（每句已编号），逐句判断AI痕迹程度。返回JSON：{"totalScore":0-100,"level":"低/中/高","sentences":[{"idx":编号,"score":0-100,"highlight":true/false}]}\n\n评分：0-30人类，31-60可能AI辅助，61-100高AI痕迹。highlight=true表示该句AI痕迹明显需标注。\n\n文本：\n${textToSend}` }
       ]
     };
-    if (cm) { detectBody.baseUrl = cm.url; detectBody.authType = "bearer"; }
 
     const resp = await fetch("/api/rewrite", {
       method: "POST",
@@ -1546,17 +1576,16 @@ async function doRewrite(apiKey, s, text, animate, context) {
   for (let retry = 0; retry <= MAX_RETRIES; retry++) {
     try {
       const cm = getCustomModel(s.model);
+      if (!cm) return { success: false, error: "没有可用的模型，请先在设置里添加自定义模型" };
       const reqBody = {
         apiKey,
-        model: cm ? cm.modelId : s.model,
+        model: cm.modelId,
+        baseUrl: cm.url,
+        authType: "bearer",
         temperature: intensity.temperature + (retry > 0 ? retry * 0.1 : 0),
         max_tokens: estimateMaxTokens(text, currentIntensity),
         messages: buildMessages(strategy, text, context || "")
       };
-      if (cm) {
-        reqBody.baseUrl = cm.url;
-        reqBody.authType = "bearer";
-      }
 
       const resp = await fetch("/api/rewrite", {
         method: "POST",

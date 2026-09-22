@@ -60,8 +60,9 @@ for (const r of rows) {
 
 try {
   const health = await (await fetch(BASE + "/api/health")).json();
-  console.log(`\n/api/health -> version=${health.version} models=${(health.models || []).length} 个`);
-  if (!/^2\./.test(String(health.version))) problems.push(`线上版本异常：${health.version}`);
+  console.log(`\n/api/health -> version=${health.version} models=${health.models}`);
+  if (!/^3\./.test(String(health.version))) problems.push(`线上版本异常：${health.version}`);
+  if (health.models !== "user-supplied") problems.push(`health 仍在暴露模型清单：${JSON.stringify(health.models)}`);
 } catch (err) {
   problems.push("/api/health 不可用：" + err.message);
 }

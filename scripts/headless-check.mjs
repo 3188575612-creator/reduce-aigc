@@ -136,8 +136,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v2.1", 'document.getElementById("proxyStatus").textContent',
-      (v) => /2\.1\.\d+/.test(v)],
+    ["代理健康检查显示 v3.0", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.0\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -152,6 +152,43 @@ try {
       (v) => v === "undefined"],
     ["重复 startRewrite 已消除", 'document.documentElement.innerHTML.split("async function startRewrite()").length - 1',
       (v) => v === 1],
+    ["已移除全部预设模型选项", `(() => {
+      const sel = document.getElementById("modelSelect");
+      const vals = [...sel.options].map(o => o.value).join(",");
+      return JSON.stringify({ count: sel.options.length, hasPreset: /deepseek|glm|qwen|mimo/i.test(vals) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.count >= 1 && !o.hasPreset; }],
+    ["无自定义模型时下拉为空并提示", `(() => {
+      const sel = document.getElementById("modelSelect");
+      return JSON.stringify({ value: sel.value, label: sel.options[sel.selectedIndex].textContent });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.value === "" && o.label.includes("还没有"); }],
+    ["老配置里的预设模型 id 被迁移掉", `(() => {
+      saveSettings(Object.assign(loadSettings(), { model: "deepseek-v4-pro", customModels: [] }));
+      const had = migratePresetModel(loadSettings());
+      return JSON.stringify({ had, model: loadSettings().model });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.had === true && o.model === null; }],
+    ["添加自定义模型后自动选中且下拉只剩它", `(() => {
+      document.getElementById("cmName").value = "测试模型";
+      document.getElementById("cmUrl").value = "https://x.example.com/v1/chat/completions";
+      document.getElementById("cmId").value = "test-model-id";
+      addCustomModel();
+      const sel = document.getElementById("modelSelect");
+      const s = loadSettings();
+      return JSON.stringify({
+        count: s.customModels.length, model: s.model, selValue: sel.value,
+        optCount: sel.options.length, optText: sel.options[0] ? sel.options[0].textContent : ""
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.count === 1 && o.selValue === o.model && o.optCount === 1 && o.optText === "测试模型"; }],
+    ["删除最后一个模型后回落到空", `(() => {
+      const s = loadSettings();
+      delCustomModel(s.customModels[0].id);
+      const after = loadSettings();
+      return JSON.stringify({ model: after.model, count: after.customModels.length });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.model === null && o.count === 0; }],
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',

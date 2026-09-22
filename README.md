@@ -58,6 +58,7 @@ npx wrangler deploy --dry-run
 | `ALLOWED_ORIGINS` | 空 | 逗号分隔的跨域白名单。留空时只放行同源与本地环回请求 |
 | `RATE_LIMIT_PER_MIN` | 30 | 单 IP 每分钟请求上限（按 isolate 内存计数，尽力而为） |
 | `UPSTREAM_TIMEOUT_MS` | 25000 | 上游请求超时 |
+| `ALLOW_PRIVATE_UPSTREAM` | 空 | 设为 `1` 才允许把请求发到内网/本机地址（连自建模型时用） |
 
 ## 本地开发
 
@@ -71,7 +72,7 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 |---|---|
 | `npm test` | 代理层回归自测：本地 mock 上游，32 项断言（鉴权、超时、重试、流式、限流、CORS、参数夹取、SSE） |
 | `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路（含 model 透传、静态路由、CSP、404） |
-| `npm run test:ui` | 无头 Edge + CDP：在真实页面上下文断言分段、max_tokens、历史全文、Key 存储等 25 项，并抓运行时异常 |
+| `npm run test:ui` | 无头 Edge + CDP：在真实页面上下文断言分段、max_tokens、历史全文、Key 存储、模型增删与迁移等 30 项，并抓运行时异常 |
 | `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
 | `npm run gen:redirects` | 按 git 跟踪清单重新生成 `_redirects`（新增根目录文件后必跑，否则 e2e 会失败） |
 | `npm run test:all` | 依次跑前三项（不含线上探测） |
@@ -97,32 +98,46 @@ Build output directory 改成 `public` → 删掉 `_redirects` 与根目录副�
 
 ## 使用
 
-1. 打开页面 → ⚙ → 添加 API Key（只存在你自己的浏览器里）
+1. 打开页面 → ⚙ → **先添加模型**（见下一节）→ 再添加该服务的 API Key（只存在你自己的浏览器里）
 2. 粘贴段落或拖入 `.docx` / `.txt`
 3. 选策略（结构 / 风格）与强度（普通 / 重度）→ 开始改写
 4. 超过 2000 字会自动分段（每段约 500 字，段间带上文保持指代一致）
 
-## 支持的模型
+## 模型：全部由你自己配置
 
-| 选项 | 上游 | 已核对的约束 |
+**本工具不内置任何模型。** 打开 ⚙，在「添加 / 管理模型」里填三项即可：
+
+| 字段 | 说明 |
+|---|---|
+| 名称 | 随便起，仅用于下拉里区分 |
+| API 完整地址 | 必须 https；只填到 `/v1` 会自动补 `/chat/completions` |
+| 模型 ID | 该服务要求的模型名，原样透传 |
+
+再在同一个面板里加 API Key（两个下拉/输入互不干扰），点「🔌 测试当前模型」就能当场验证
+鉴权与参数是否被接受 —— 它会用你的 Key 真打一次上游（`max_tokens: 32`，只花几十 token），
+成功显示返回内容与耗时，失败直接显示上游原始报错。
+
+这是唯一需要配的东西；没有配置时「开始改写」会拦住并提示先添加模型。
+
+### 已知上游的参数适配（自动生效）
+
+填了**官方域名**时会自动套用官方文档里查到的硬约束（依据 2026-09 核对）。这不是模型清单，
+填别的域名就不套用：
+
+| 域名 | 自动处理 | 原因 |
 |---|---|---|
-| DeepSeek V4 Pro / Flash | api.deepseek.com | 温度 0–2 |
-| GLM-4.7 | open.bigmodel.cn | 温度上限按 1.0 处理；输出上限 8192；显式关闭思考模式 |
-| Qwen-Turbo / Qwen-Plus | dashscope.aliyuncs.com | 输出上限 4096 |
-| Xiaomi MiMo（mimo-v2.5-pro）| api.xiaomimimo.com | `api-key` 鉴权；温度上限 1.5；显式关闭思考模式 |
+| `*.bigmodel.cn` | 温度上限 1.0、`max_tokens` 上限 8192、关闭思考模式 | 官方最大输出很大，默认开思考会挤占正文 |
+| `*.xiaomimimo.com` | 温度上限 1.5、关闭思考模式 | 温度范围只有 0–1.5；默认开思考会挤占正文 |
+| `*.dashscope.aliyuncs.com` | `max_tokens` 上限 4096 | 输出上限较小 |
 
-端点、模型 ID 与鉴权方式均已对照各厂商官方文档核对。GLM-4.7 与 MiMo **默认会开启思考模式**，
-推理 token 会挤占 `max_tokens`、导致正文返回为空或过短，因此代理里显式传了
-`thinking: { type: "disabled" }`（改写是风格转换，不需要长链推理）。若某模型的该参数不被接受，
-删掉 `MODEL_ENDPOINTS` 里对应的 `extraBody` 即可。
+> 「关闭思考模式」= 请求里带 `thinking: { type: "disabled" }`。改写是风格转换而非推理，
+> 开着思考会把 `max_tokens` 吃光导致正文为空。若某模型不接受该参数，删掉
+> `functions/_lib/rewrite-handler.mjs` 里 `UPSTREAM_PROFILES` 对应那行 `extraBody` 即可。
 
-也可在设置里添加自定义模型：填名称、**完整** API 地址、模型 ID。地址必须为 https（本机环回可用 http）；
-只填到 `/v1` 会自动补 `/chat/completions`。自定义模型不套用上面的预置约束。
+### 内网 / 本机模型
 
-**换模型或换 Key 后，先在设置里点「🔌 测试当前模型」**：它会用你当前的 Key 真打一次上游
-（`max_tokens: 32`，只花几十 token），直接显示成功/失败与上游原始报错。
-上面几条参数约束是按官方文档写的，没有用真实 Key 跑过；这个按钮就是用来当场验证的 ——
-若某个模型报参数错误，删掉 `MODEL_ENDPOINTS` 里对应那行 `extraBody` 或上限即可。
+默认**禁止**把请求发到内网与本机地址（SSRF 防护）。要连本机自建模型（Ollama、vLLM 等），
+让服务端设置 `ALLOW_PRIVATE_UPSTREAM=1`，本地开发时就是 `ALLOW_PRIVATE_UPSTREAM=1 npm start`。
 
 ## 安全与隐私
 
@@ -146,6 +161,17 @@ Build output directory 改成 `public` → 删掉 `_redirects` 与根目录副�
 - `raw.githubusercontent.com` 在本机不可达，故公告改为**同源优先**（`/announcement.json`）。
 
 ## 变更记录
+
+### 3.0.0（不兼容变更）
+- **移除全部内置模型**：不再有 DeepSeek / GLM / Qwen / MiMo 的预设选项，
+  端点、模型 ID、密钥全部由用户自己配置（`/api/rewrite` 的 `baseUrl` 由可选变为**必填**，
+  缺少时返回 400 并给出提示）。旧的 `model: "deepseek-v4-pro"` 请求不再有效
+- 原本绑在预设模型上的参数约束改为**按上游域名自动适配**（`UPSTREAM_PROFILES`），
+  填官方地址仍然会被正确处理，填别的地址则不套用
+- 新增 SSRF 防护：默认禁止请求内网与本机地址，需连自建模型时用 `ALLOW_PRIVATE_UPSTREAM=1`
+  显式开启（本地 `npm start` 与测试脚本已默认开启）
+- 老配置里残留的预设模型 id 会被自动迁移（有自定义模型就切过去，没有就置空并提示一次）
+- 测试从 93 项扩到 115 项
 
 ### 2.1.2
 - `_redirects` 改为**从 `git ls-files` 生成**（`npm run gen:redirects`），并补上漏掉的

@@ -30,7 +30,14 @@ await new Promise((r) => upstream.listen(UPSTREAM_PORT, "127.0.0.1", r));
 
 const child = spawn(NODE, ["server.js"], {
   cwd: ROOT,
-  env: { ...process.env, PORT: String(PORT), HOST: "127.0.0.1", UPSTREAM_TIMEOUT_MS: "2000" },
+  env: {
+    ...process.env,
+    PORT: String(PORT),
+    HOST: "127.0.0.1",
+    UPSTREAM_TIMEOUT_MS: "2000",
+    // mock 上游跑在 127.0.0.1，默认会被 SSRF 防护拦下，本地验证需显式开启
+    ALLOW_PRIVATE_UPSTREAM: "1",
+  },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let serverLog = "";
@@ -70,8 +77,18 @@ if (!ready) {
 
   const h = await fetch(base + "/api/health");
   const hb = await h.json();
-  check("GET /api/health -> ok 且版本为 2.1.x", h.status === 200 && hb.ok === true && /^2\.1\./.test(hb.version),
+  check("GET /api/health -> ok 且版本为 3.0.x", h.status === 200 && hb.ok === true && /^3\.0\./.test(hb.version),
     `status=${h.status} body=${JSON.stringify(hb)}`);
+  check("health 不再返回内置模型清单", hb.models === "user-supplied", JSON.stringify(hb.models));
+
+  const noBase = await fetch(base + "/api/rewrite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey: "k", messages: [{ role: "user", content: "x" }] }),
+  });
+  const noBaseBody = await noBase.json();
+  check("缺 baseUrl -> 400 且提示明确（不再有内置模型兜底）",
+    noBase.status === 400 && /baseUrl/.test(String(noBaseBody.error)), `status=${noBase.status} body=${JSON.stringify(noBaseBody).slice(0, 120)}`);
 
   const page = await fetch(base + "/");
   const html = await page.text();
