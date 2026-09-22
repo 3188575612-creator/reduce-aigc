@@ -2,7 +2,7 @@
 // 运行环境需提供 Web 标准 API：fetch、Request、Response、URL、AbortController。
 // 放在 functions/_lib/ 下作为源码模块；Pages 的路由面由仓库根的 _routes.json 限定在 /api/*。
 
-export const VERSION = "3.2.0";
+export const VERSION = "3.3.0";
 
 // 本服务不内置任何模型：端点、模型 ID、密钥全部由用户在自己的浏览器里配置后随请求带来。
 // 下面这份是按上游域名匹配的「参数适配」，不是模型清单 —— 用户填官方地址时会自动套用已知约束，
@@ -193,6 +193,26 @@ export function buildRequestBody(target, messages, temperature, maxTokens, strea
   };
 }
 
+const EXTRA_BODY_MAX_KEYS = 20;
+const EXTRA_BODY_MAX_LEN = 2000;
+// messages 与 stream 由代理掌控：前者已经过内容校验，后者影响响应处理方式
+const EXTRA_BODY_BLOCKED = ["messages", "stream"];
+
+// 允许前端透传上游专属参数（典型用途：thinking / reasoning_effort / top_p 这类开关），
+// 这样用户不必为了关掉思考模式而换模型。普通字段可覆盖，但 messages / stream 不许动。
+export function mergeExtraBody(reqBody, extraBody) {
+  if (!extraBody || typeof extraBody !== "object" || Array.isArray(extraBody)) return reqBody;
+  let size = 0;
+  try { size = JSON.stringify(extraBody).length; } catch { return reqBody; }
+  if (size > EXTRA_BODY_MAX_LEN) return reqBody;
+  for (const key of Object.keys(extraBody).slice(0, EXTRA_BODY_MAX_KEYS)) {
+    if (EXTRA_BODY_BLOCKED.includes(key)) continue;
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,40}$/.test(key)) continue;
+    reqBody[key] = extraBody[key];
+  }
+  return reqBody;
+}
+
 function validateMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return "messages 必须是非空数组";
   if (messages.length > MAX_MESSAGES) return `messages 超过上限 ${MAX_MESSAGES} 条`;
@@ -270,7 +290,7 @@ export async function handleRewrite(request, env = {}) {
 
   const {
     apiKey, model, baseUrl, authType,
-    messages, temperature, max_tokens, stream,
+    messages, temperature, max_tokens, stream, extraBody,
   } = body;
 
   if (typeof apiKey !== "string" || !apiKey.trim()) {
@@ -292,6 +312,7 @@ export async function handleRewrite(request, env = {}) {
 
   const limits = applyModelLimits(target, temperature, max_tokens);
   const reqBody = buildRequestBody(target, messages, limits.temperature, limits.maxTokens, stream);
+  mergeExtraBody(reqBody, extraBody);
 
   const headers = { "Content-Type": "application/json", Accept: "application/json" };
   if (target.auth === "apikey") headers["api-key"] = apiKey;

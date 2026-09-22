@@ -4,7 +4,7 @@ import http from "node:http";
 import fs from "node:fs";
 import {
   handleRewrite, VERSION, UPSTREAM_PROFILES,
-  resolveTarget, applyModelLimits, buildRequestBody,
+  resolveTarget, applyModelLimits, buildRequestBody, mergeExtraBody,
 } from "../functions/_lib/rewrite-handler.mjs";
 
 // 注意：不能 import MODEL_ENDPOINTS 来判断它是否被删（缺失的具名导出会让模块链接失败），
@@ -225,6 +225,18 @@ r = await call(null, {
 await r.text();
 check("空 body POST -> 400 而非崩溃", r.status === 400, `status=${r.status}`);
 
+// extraBody 走真实 HTTP（mock 上游还活着）
+upstreamCalls.length = 0;
+r = await call(validPayload({ extraBody: { thinking: { type: "disabled" }, top_p: 0.9 } }));
+body = await r.json();
+const seenBody = upstreamCalls.at(-1)?.body || {};
+check("extraBody 透传到上游请求体",
+  seenBody.thinking?.type === "disabled" && seenBody.top_p === 0.9,
+  JSON.stringify({ thinking: seenBody.thinking, top_p: seenBody.top_p }));
+check("extraBody 不能覆盖 messages（内容校验已过，不许绕过）",
+  JSON.stringify(seenBody.messages) === JSON.stringify(validPayload().messages),
+  JSON.stringify(seenBody.messages || {}).slice(0, 120));
+
 upstream.close();
 
 // ---------- 用户自定义模型 / 参数适配：纯逻辑，不需要网络 ----------
@@ -294,12 +306,26 @@ for (const p of UPSTREAM_PROFILES) {
   check(`参数适配项「${p.label}」含域名匹配规则`, p.match instanceof RegExp, String(p.match));
 }
 check("代理已无内置模型端点表", !/export const MODEL_ENDPOINTS/.test(handlerSrc), "MODEL_ENDPOINTS 仍存在");
+
+// ---------- extraBody：让用户能自己关掉思考模式（纯逻辑部分） ----------
+const merged = mergeExtraBody({ messages: ["m"], stream: false }, { messages: ["hack"], stream: true, top_k: 5, "bad key": 1 });
+check("mergeExtraBody 过滤 messages / stream 与非法键名",
+  JSON.stringify(merged.messages) === JSON.stringify(["m"]) && merged.stream === false &&
+  merged.top_k === 5 && !("bad key" in merged),
+  JSON.stringify(merged));
+
+const bigExtra = {};
+for (let i = 0; i < 40; i++) bigExtra["k" + i] = "x".repeat(200);
+check("超大 extraBody 被忽略（不放大请求）",
+  Object.keys(mergeExtraBody({ messages: ["m"] }, bigExtra)).length === 1, "未忽略");
+check("extraBody 不是对象时忽略",
+  JSON.stringify(mergeExtraBody({ messages: ["m"] }, ["nope"])) === JSON.stringify({ messages: ["m"] }), "未忽略");
 check("前端代码里也不该再有预设模型 id",
   !/"(deepseek-v4-pro|deepseek-v4-flash|glm-4\.7|qwen-turbo|qwen-plus|xiaomimimo)"/.test(
     fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
   ), "index.html 仍引用预设模型 id");
 
-check("版本号已升到 3.2.x", VERSION.startsWith("3.2."), VERSION);
+check("版本号已升到 3.3.x", VERSION.startsWith("3.3."), VERSION);
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 check("package.json 与代理版本一致（避免 health 报的版本对不上）",

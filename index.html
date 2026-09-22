@@ -630,6 +630,14 @@
   .custom-model-item .cm-edit { color: var(--accent); }
   .custom-model-item .cm-del { color: var(--danger); }
   .custom-model-item .cm-edit:hover, .custom-model-item .cm-del:hover { background: var(--field-bg-strong); }
+  .cm-option {
+    display: flex; align-items: center; gap: 7px; margin-top: 9px;
+    font-size: 12px; color: var(--text-secondary); cursor: pointer;
+  }
+  .cm-option input { accent-color: var(--accent); cursor: pointer; }
+  .cm-option code {
+    background: var(--field-bg-strong); padding: 0 4px; border-radius: 3px; font-size: 11px;
+  }
 
   /* ---- 轻提示：也是浮层，同样用玻璃 ---- */
   .toast {
@@ -840,6 +848,10 @@
         </select>
         <button class="btn btn-primary btn-sm" id="cmAddBtn" onclick="addCustomModel()">+</button>
       </div>
+      <label class="cm-option">
+        <input type="checkbox" id="cmNoThinking">
+        关闭思考模式（请求带上 <code>thinking: disabled</code>）—— 出现「只返回思考内容」时勾上
+      </label>
       <div style="font-size:10px;color:var(--text-secondary);margin-top:2px;">
         例: https://api.deepseek.com/v1/chat/completions（只填到 /v1 会自动补 /chat/completions）
       </div>
@@ -1011,14 +1023,16 @@ const INTENSITY = {
   heavy:  { temperature: 1.4, maxMultiplier: 1.8, label: "重度" }
 };
 
-const MAX_TOKENS_CAP = 8192;
+const MAX_TOKENS_CAP = 16384;
 const BATCH_CHUNK_SIZE = 500;
 const BATCH_CONTEXT_CHARS = 120;
 const PROXY_VERSION_EXPECTED = "3.";
 
-function estimateMaxTokens(text, intensity) {
+// boost：检测到"上游只回思考内容"时逐级放大输出预算 —— 推理模型的思考 token 也计入 max_tokens
+function estimateMaxTokens(text, intensity, boost = 0) {
   const mult = (INTENSITY[intensity] || INTENSITY.normal).maxMultiplier;
-  return Math.max(1024, Math.min(MAX_TOKENS_CAP, Math.ceil(text.length * mult)));
+  const base = Math.ceil(text.length * mult);
+  return Math.max(1024, Math.min(MAX_TOKENS_CAP, base * (boost > 0 ? Math.pow(2, boost) : 1)));
 }
 
 function buildMessages(strategy, text, context) {
@@ -1202,7 +1216,7 @@ function renderCustomModels() {
       <div class="custom-model-item">
         <span style="flex:1;min-width:0;">
           <strong>${escapeHtml(m.name)}</strong>
-          <span style="color:var(--text-tertiary);font-size:10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(m.url)} · ${escapeHtml(m.modelId)} · ${m.auth === "apikey" ? "api-key 头" : "Bearer"}</span>
+          <span style="color:var(--text-tertiary);font-size:10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(m.url)} · ${escapeHtml(m.modelId)} · ${m.auth === "apikey" ? "api-key 头" : "Bearer"}${m.noThinking ? " · 已关思考" : ""}</span>
         </span>
         <span style="display:flex;gap:4px;flex-shrink:0;">
           <span class="cm-edit" role="button" tabindex="0" aria-label="编辑模型 ${escapeHtml(m.name)}" onclick="editCustomModel('${escapeHtml(m.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();editCustomModel('${escapeHtml(m.id)}');}">✎</span>
@@ -1244,6 +1258,7 @@ function addCustomModel() {
   const url = document.getElementById("cmUrl").value.trim();
   const modelId = document.getElementById("cmId").value.trim();
   const auth = document.getElementById("cmAuth").value === "apikey" ? "apikey" : "bearer";
+  const noThinking = !!document.getElementById("cmNoThinking").checked;
   if (!name || !url || !modelId) return toast("请填写完整");
   if (!/^https?:\/\//i.test(url)) return toast("API 地址要以 http(s):// 开头");
 
@@ -1253,11 +1268,11 @@ function addCustomModel() {
   const wasEdit = !!cmEditId;
   if (wasEdit) {
     const idx = s.customModels.findIndex(m => m.id === cmEditId);
-    if (idx >= 0) s.customModels[idx] = { id: cmEditId, name, url, modelId, auth };
+    if (idx >= 0) s.customModels[idx] = { id: cmEditId, name, url, modelId, auth, noThinking };
     cmEditId = null;
     document.getElementById("cmAddBtn").textContent = "+";
   } else {
-    s.customModels.push({ id: "cm_" + Date.now(), name, url, modelId, auth });
+    s.customModels.push({ id: "cm_" + Date.now(), name, url, modelId, auth, noThinking });
   }
 
   // 没有选中模型（首次添加或刚删空）时自动选中，省一步操作
@@ -1270,6 +1285,7 @@ function addCustomModel() {
   document.getElementById("cmUrl").value = "";
   document.getElementById("cmId").value = "";
   document.getElementById("cmAuth").value = "bearer";
+  document.getElementById("cmNoThinking").checked = false;
   renderCustomModels();
   toast(wasEdit ? "已更新" : "已添加");
 }
@@ -1282,6 +1298,7 @@ function editCustomModel(id) {
   document.getElementById("cmUrl").value = m.url;
   document.getElementById("cmId").value = m.modelId;
   document.getElementById("cmAuth").value = m.auth === "apikey" ? "apikey" : "bearer";
+  document.getElementById("cmNoThinking").checked = !!m.noThinking;
   cmEditId = id;
   document.getElementById("cmAddBtn").textContent = "✓";
 }
@@ -1293,6 +1310,7 @@ function delCustomModel(id) {
     document.getElementById("cmUrl").value = "";
     document.getElementById("cmId").value = "";
     document.getElementById("cmAuth").value = "bearer";
+    document.getElementById("cmNoThinking").checked = false;
     document.getElementById("cmAddBtn").textContent = "+";
   }
   const s = loadSettings();
@@ -1409,9 +1427,10 @@ async function testConnection() {
     baseUrl: cm.url,
     authType: cm.auth === "apikey" ? "apikey" : "bearer",
     temperature: 0,
-    max_tokens: 32,
+    max_tokens: 256,
     messages: [{ role: "user", content: "只回复两个字：可以" }]
   };
+  if (cm.noThinking) body.extraBody = { thinking: { type: "disabled" } };
 
   const started = Date.now();
   try {
@@ -1426,8 +1445,13 @@ async function testConnection() {
     const ms = Date.now() - started;
 
     if (resp.ok && data && !data.error) {
-      const text = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "").trim().slice(0, 20);
-      el.innerHTML = `<span style="color:var(--success)">✅ ${escapeHtml(label)} 可用 · ${ms}ms · 返回「${escapeHtml(text)}」</span>`;
+      const parsed = extractContent(data);
+      const text = parsed.text.trim().slice(0, 20);
+      if (!text && parsed.reasoning) {
+        el.innerHTML = `<span style="color:var(--warning)">⚠ ${escapeHtml(label)} 连通正常，但只回了 ${parsed.reasoning.length} 字思考内容、没有正文（完成原因 ${escapeHtml(parsed.finishReason || "未知")}）。请勾上「关闭思考模式」，或改用非推理型号。</span>`;
+      } else {
+        el.innerHTML = `<span style="color:var(--success)">✅ ${escapeHtml(label)} 可用 · ${ms}ms · 返回「${escapeHtml(text)}」</span>`;
+      }
     } else {
       const rawMsg = (data && data.error && (data.error.message || data.error)) || raw.slice(0, 160) || `HTTP ${resp.status}`;
       const msg = typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg);
@@ -2311,15 +2335,21 @@ function finishBatch(results, total, progressWrap, progressText, progressFill, o
   setTimeout(() => { progressWrap.style.display = "none"; }, 1800);
 }
 
-// 从上游响应里取正文；顺便识别"只有思考内容没有正文"的情况
+// 从上游响应里取正文；顺便识别"只有思考内容没有正文"的情况，并把截断原因读出来
 function extractContent(data) {
-  const msg = (data && data.choices && data.choices[0] && data.choices[0].message) || {};
+  const choice = (data && data.choices && data.choices[0]) || {};
+  const msg = choice.message || {};
   let text = msg.content;
   if (Array.isArray(text)) {
     text = text.map((p) => (typeof p === "string" ? p : (p && p.text) || "")).join("");
   }
   const reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";
-  return { text: String(text || ""), reasoning };
+  return {
+    text: String(text || ""),
+    reasoning,
+    finishReason: choice.finish_reason || "",
+    completionTokens: (data && data.usage && data.usage.completion_tokens) || null,
+  };
 }
 
 async function doRewrite(apiKey, s, text, animate, context) {
@@ -2327,6 +2357,8 @@ async function doRewrite(apiKey, s, text, animate, context) {
   const strategy = STRATEGIES[currentStrategy];
   const intensity = INTENSITY[currentIntensity] || INTENSITY.normal;
   let lastError = null;
+  let boost = 0;          // 输出预算放大级数（推理模型吃满预算时逐级加大）
+  let dropExtra = false;  // 上游不认识我们传的额外参数时，摘掉再试一次
 
   for (let retry = 0; retry <= MAX_RETRIES; retry++) {
     if (rewriteStopped) return { success: false, stopped: true, error: "已停止" };
@@ -2341,9 +2373,10 @@ async function doRewrite(apiKey, s, text, animate, context) {
         baseUrl: cm.url,
         authType: cm.auth === "apikey" ? "apikey" : "bearer",
         temperature: intensity.temperature + (retry > 0 ? retry * 0.1 : 0),
-        max_tokens: estimateMaxTokens(text, currentIntensity),
+        max_tokens: estimateMaxTokens(text, currentIntensity, boost),
         messages: buildMessages(strategy, text, context || "")
       };
+      if (cm.noThinking && !dropExtra) reqBody.extraBody = { thinking: { type: "disabled" } };
 
       const resp = await fetch("/api/rewrite", {
         method: "POST",
@@ -2367,32 +2400,58 @@ async function doRewrite(apiKey, s, text, animate, context) {
         const msg = rawMsg ? (typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg)) : `HTTP ${resp.status}`;
         const err = new Error(msg);
         err.status = resp.status;
+        err.upstream = String(msg);
         throw err;
       }
 
-      const { text: content, reasoning } = extractContent(data);
+      const { text: content, reasoning, finishReason, completionTokens } = extractContent(data);
       let result = content;
+
       if (!result.trim()) {
+        // ① 只回了思考内容：多半是推理 token 把 max_tokens 吃满（finish_reason 通常是 length）
         if (reasoning.trim()) {
-          // 上游只回了思考过程，不能当改写结果用
+          if (retry < MAX_RETRIES && boost < 2 && !(cm.noThinking && dropExtra)) {
+            boost += 1;
+            lastError = `上游只返回了思考内容（${reasoning.length} 字思考，完成原因 ${finishReason || "未知"}），已把输出预算放大到 ${estimateMaxTokens(text, currentIntensity, boost)} 重试`;
+            continue;
+          }
           return {
             success: false,
-            error: "上游只返回了思考内容（reasoning_content），没有正文。说明该模型默认开启思考模式且输出预算被占满 —— 请换一个非思考模型，或调整该服务的默认参数。"
+            error: `上游只返回了思考内容（${reasoning.length} 字），${reasoning.length} 字思考把输出预算占满了（完成原因：${finishReason || "未知"}），没有正文。\n\n` +
+              `可这样解决：\n` +
+              `1. 到设置里给这个模型勾上「关闭思考模式」（会自动带上 thinking 参数），再试一次；\n` +
+              `2. 若上游不认这个参数，说明它没有提供关闭思考的开关 —— 换该服务的非推理型号（通常名字里带 flash / turbo / chat 而不带 reason / think）；\n` +
+              `3. 若你填的是第三方中转地址，本工具对官方域名的自动处理不会生效，需要按上面两条手动处理。`
           };
         }
-        lastError = "API 返回为空";
+        // ② 真的空响应
+        lastError = completionTokens ? `API 返回为空（用了 ${completionTokens} token）` : "API 返回为空";
         continue;
       }
 
       result = result.replace(/^\s*```[a-zA-Z]*\s*\n/, "").replace(/\n```\s*$/, "")
         .replace(/^(改写后|改写结果|结果)[：:]\s*/, "").trim();
-      if (result.length < text.length * 0.3) { lastError = "返回过短"; continue; }
+      if (result.length < text.length * 0.3) {
+        lastError = finishReason === "length"
+          ? `返回被截断（完成原因 length，只有 ${result.length} 字）`
+          : "返回过短";
+        if (retry < MAX_RETRIES && boost < 1) { boost += 1; continue; }
+        continue;
+      }
 
       if (animate) await typewriterEffect(document.getElementById("outputArea"), result);
       return { success: true, text: result };
     } catch (err) {
       if (err.name === "AbortError") return { success: false, stopped: true, error: "已停止" };
       lastError = err.message;
+
+      // 上游不认识我们加的 thinking 参数：摘掉再试一次，别让用户卡在参数错误上
+      const cm = getCustomModel(s.model);
+      if (cm && cm.noThinking && !dropExtra && err.status === 400 && /unknown|unsupported|invalid|unrecognized|额外|不支持/i.test(String(err.upstream || ""))) {
+        dropExtra = true;
+        lastError = "上游不接受 thinking 参数，已去掉后重试";
+        continue;
+      }
 
       // 分类退避：参数/鉴权类错误重试没有意义，直接抛出
       if (err.status && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429) {

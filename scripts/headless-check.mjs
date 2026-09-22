@@ -155,8 +155,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.2", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.2\.\d+/.test(v)],
+    ["代理健康检查显示 v3.3", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.3\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -324,6 +324,32 @@ try {
       return shown;
     })()`,
       (v) => v === true],
+    ["「关闭思考模式」可保存并在卡片上标出", `(() => {
+      document.getElementById("cmName").value = "推理模型";
+      document.getElementById("cmUrl").value = "https://api.example.com/v1/chat/completions";
+      document.getElementById("cmId").value = "reasoner-x";
+      document.getElementById("cmNoThinking").checked = true;
+      addCustomModel();
+      const m = (loadSettings().customModels || []).find(x => x.name === "推理模型");
+      return JSON.stringify({
+        saved: m ? m.noThinking : null,
+        marked: document.getElementById("customModelList").textContent.includes("已关思考"),
+        resetAfterAdd: document.getElementById("cmNoThinking").checked
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.saved === true && o.marked && o.resetAfterAdd === false; }],
+    ["输出预算能逐级放大（推理模型吃满预算时用）", `JSON.stringify([
+      estimateMaxTokens("x".repeat(500), "heavy"),
+      estimateMaxTokens("x".repeat(500), "heavy", 1),
+      estimateMaxTokens("x".repeat(500), "heavy", 2),
+      estimateMaxTokens("x".repeat(9000), "heavy", 2)
+    ])`,
+      (v) => JSON.stringify(JSON.parse(v)) === JSON.stringify([1024, 1800, 3600, 16384])],
+    ["extractContent 带出完成原因与用量", `(() => {
+      const r = extractContent({ choices: [{ finish_reason: "length", message: { content: "甲", reasoning_content: "思考" } }], usage: { completion_tokens: 512 } });
+      return JSON.stringify({ finish: r.finishReason, tokens: r.completionTokens, reasoningLen: r.reasoning.length, text: r.text });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.finish === "length" && o.tokens === 512 && o.reasoningLen === 2 && o.text === "甲"; }],
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',
@@ -350,7 +376,7 @@ try {
     })()`,
       (v) => { const o = JSON.parse(v); return o.count === 4 && o.maxLen === 500; }],
     ["max_tokens 随强度生效且封顶", '[estimateMaxTokens("x".repeat(2000),"heavy"), estimateMaxTokens("x".repeat(2000),"normal"), estimateMaxTokens("x".repeat(20000),"heavy")]',
-      (v) => JSON.stringify(v) === JSON.stringify([3600, 2800, 8192])],
+      (v) => JSON.stringify(v) === JSON.stringify([3600, 2800, 16384])],
     ["buildMessages 带上下文时标注待改写段", `JSON.stringify(buildMessages(STRATEGIES["sentence-shuffle"], "待改写正文", "上文片段").map(m => [m.role, m.content.includes("【待改写文本】"), m.content.includes("不要输出上文"), m.content.includes("上文片段")]))`,
       (v) => JSON.stringify(JSON.parse(v)) === JSON.stringify([["system", true, true, false], ["user", true, false, true]])],
     ["历史记录保存原文全文并可完整回填", `(() => {
