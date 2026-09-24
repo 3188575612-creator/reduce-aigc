@@ -1,6 +1,6 @@
 {
   "name": "aigc-reducer",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "private": true,
   "description": "降低论文AIGC率的文本改写工具",
   "scripts": {
@@ -11,6 +11,7 @@
     "probe:live": "node scripts/probe-live.mjs",
     "gen:redirects": "node scripts/gen-redirects.mjs",
     "test:all": "npm test && npm run test:e2e && npm run test:ui",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "check:docs": "node scripts/check-docs.mjs"
   }
 }

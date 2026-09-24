@@ -1,6 +1,7 @@
 // 代理层回归自测：本地 mock 上游 + 直接驱动共享 handler。
 // 运行：npm test
 import http from "node:http";
+import { recordCount } from "./_test-count.mjs";
 import fs from "node:fs";
 import {
   handleRewrite, VERSION, UPSTREAM_PROFILES,
@@ -325,7 +326,7 @@ check("前端代码里也不该再有预设模型 id",
     fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
   ), "index.html 仍引用预设模型 id");
 
-check("版本号已升到 3.6.x", VERSION.startsWith("3.6."), VERSION);
+check("版本号已升到 3.7.x", VERSION.startsWith("3.7."), VERSION);
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 check("package.json 与代理版本一致（避免 health 报的版本对不上）",
@@ -333,6 +334,7 @@ check("package.json 与代理版本一致（避免 health 报的版本对不上�
 
 const failed = results.filter((x) => !x.ok);
 console.log(`\n共 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}`);
+recordCount("npm test", results.length);
 if (failed.length) {
   console.log("失败项：");
   for (const f of failed) console.log("  - " + f.name + " :: " + f.detail);

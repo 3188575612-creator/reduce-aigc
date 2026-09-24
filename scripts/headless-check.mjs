@@ -1,6 +1,7 @@
 // 无头 Edge + CDP：在真实页面上下文里验证前端逻辑（含纯函数断言与历史全文修复）。
 // 运行：npm run test:ui（需本机装有 Edge 或 Chrome）
 import { spawn } from "node:child_process";
+import { recordCount } from "./_test-count.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -155,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.6", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.6\.\d+/.test(v)],
+    ["代理健康检查显示 v3.7", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.7\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -622,6 +623,11 @@ try {
           /2/.test(o.shown) && /150/.test(o.shown);
       }],
     ["对比视图「改这句」能在输入区选中原文句", `(() => {
+      // 先关掉可能还开着的面板：面板打开时主区是 inert，focus() 不会生效
+      for (const [id, cls] of [["modalOverlay", "open"], ["historyOverlay", "show"], ["detectOverlay", "show"], ["announceOverlay", "show"]]) {
+        document.getElementById(id).classList.remove(cls);
+      }
+      syncBackgroundInert();
       const orig = "第一句保持不变。第二句需要重新处理。第三句也保持不变。";
       setInputText(orig);
       locateSentence("第二句需要重新处理。");
@@ -651,6 +657,63 @@ try {
       return JSON.stringify({ value: document.getElementById("inputText").value, hint: document.getElementById("uploadHint").textContent });
     })()`,
       (v) => { const o = JSON.parse(v); return o.value === "单独一个文件的内容。" && o.hint.includes("solo.txt"); }],
+    ["面板打开时背景被 inert，关闭后恢复", `(() => {
+      const main = document.querySelector(".main");
+      const header = document.querySelector(".header");
+      openSettings();
+      const opened = { main: main.inert === true, header: header.inert === true, aria: main.getAttribute("aria-hidden"), lock: document.body.classList.contains("panel-open") };
+      closeSettings({ target: document.getElementById("modalOverlay") });
+      const closed = { main: main.inert === false, aria: main.getAttribute("aria-hidden"), lock: document.body.classList.contains("panel-open") };
+      return JSON.stringify({ opened, closed });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        return o.opened.main && o.opened.header && o.opened.aria === "true" && o.opened.lock &&
+          o.closed.main && o.closed.aria === null && o.closed.lock === false;
+      }],
+    ["关闭面板后焦点回到打开它的按钮", `(async () => {
+      const btn = document.getElementById("pickFileBtn");
+      btn.focus();
+      openHistory();
+      await new Promise((r) => setTimeout(r, 160));   // 聚焦是延时的，等它落定
+      const inside = document.querySelector(".history-panel").contains(document.activeElement);
+      closeHistory({ target: document.getElementById("historyOverlay") });
+      await new Promise((r) => setTimeout(r, 60));
+      return JSON.stringify({ focusedInside: inside, backToTrigger: document.activeElement === btn });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.focusedInside && o.backToTrigger; }],
+    ["轻提示不参与 inert（aria-live 要能被播报）", `(() => {
+      openSettings();
+      const toast = document.getElementById("toast");
+      const r = { toastInert: toast.inert === true, toastAria: toast.getAttribute("aria-hidden") };
+      closeSettings({ target: document.getElementById("modalOverlay") });
+      return JSON.stringify(r);
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.toastInert === false && o.toastAria === null; }],
+    ["打印样式只输出结果栏", `(() => {
+      const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("\\n");
+      const block = (css.match(/@media print \\{[\\s\\S]*?\\n  \\}/) || [""])[0];
+      return JSON.stringify({
+        hasPrint: /@media print/.test(css),
+        hidesInputCard: /#inputCard\\s*\\{[^}]*display:\\s*none/.test(block),
+        hidesHeader: /\\.header/.test(block),
+        resetsHeight: /min-height:\\s*0\\s*!important/.test(block)
+      });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        return o.hasPrint && o.hidesInputCard && o.hidesHeader && o.resetsHeight;
+      }],
+    ["触屏断点已定义（控件放大到可点）", `(() => {
+      // 页面上可能出现多个 style（例如导出模板被解析成真元素），全部拼接再查
+      const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("\\n");
+      return JSON.stringify({
+        styles: document.querySelectorAll("style").length,
+        hasCoarse: /@media\\s*\\(pointer:\\s*coarse\\)/.test(css),
+        minHeight: /\\.btn-sm\\s*\\{[^}]*min-height:\\s*36px/.test(css)
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.hasCoarse && o.minHeight; }],
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',
@@ -744,6 +807,7 @@ try {
   const failed = results.filter((x) => !x.ok);
   console.log(`\n共 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}`);
   console.log("截图: output/ui-check.png");
+  recordCount("npm run test:ui", results.length);
   if (failed.length) {
     console.log("失败项：");
     for (const f of failed) console.log("  - " + f.name);

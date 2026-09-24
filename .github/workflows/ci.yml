@@ -33,3 +33,8 @@ jobs:
 
       - name: 无头浏览器检查（用 runner 自带 Chrome）
         run: npm run test:ui
+
+      # 文档漂移检查：README 标称的条数/版本/公告约定必须与实际一致
+      # （此前因为没有这步，README 的条数悄悄落后了几十个版本）
+      - name: 文档与实现一致
+        run: npm run check:docs

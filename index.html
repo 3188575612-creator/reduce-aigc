@@ -157,6 +157,8 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   html { background: var(--bg); }
+  /* 面板打开时锁住背景滚动，避免滚轮穿透到主区 */
+  body.panel-open { overflow: hidden; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     background: transparent;
@@ -223,6 +225,7 @@
   .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
   .status-dot.ok { background: var(--success); }
   .status-dot.err { background: var(--danger); }
+  .status-fix { margin-left: 4px; padding: 1px 8px; font-size: 11px; height: auto; }
   .btn-settings {
     width: 34px; height: 34px; border-radius: var(--r-md);
     border: 1px solid transparent; background: transparent;
@@ -680,6 +683,36 @@
   /* ============================================================
      响应式
      ============================================================ */
+  /* 触屏设备上把偏小的控件放大到接近 40px，手指点得中 */
+  @media (pointer: coarse) {
+    .btn-sm { min-height: 36px; padding: 8px 14px; }
+    .btn-settings { width: 40px; height: 40px; }
+    .strategy-btn { padding: 9px 16px; }
+    .view-tab { padding: 8px 14px; }
+    .key-delete { width: 34px; height: 34px; }
+    .modal-close { width: 34px; height: 34px; }
+  }
+
+  /* 打印：只留右栏的结果（论文场景多半是要那份改写后文本），隐藏一切交互件 */
+  @media print {
+    body { background: #fff; color: #000; }
+    /* 用 id 而不是 :first-of-type —— 后者匹配的是 .main 里第一个 div（策略条），不是左卡片 */
+    body::before, .header, .notice-bar, .action-bar, .strategy-bar, .toast,
+    .modal-overlay, .history-overlay, .panel-tools, .panel-foot,
+    #inputCard { display: none !important; }
+    .main { display: block; max-width: none; padding: 0; }
+    .card, .card.panel { border: none; box-shadow: none; padding: 0; min-height: 0; background: none; }
+    .panel-header { margin-bottom: 8px; }
+    .input-area, .output-area, .compare-area {
+      height: auto !important; max-height: none; min-height: 0 !important; overflow: visible;
+      border: none; background: none; padding: 0; font-size: 12pt; line-height: 1.7;
+    }
+    .panel-title, .char-count { color: #555; }
+    .cmp-row { break-inside: avoid; page-break-inside: avoid; }
+    .cmp-add { background: none; color: #000; text-decoration: underline; }
+    .cmp-remove { background: none; color: #666; }
+  }
+
   @media (max-width: 960px) {
     .main { grid-template-columns: minmax(0, 1fr); padding: 18px 16px 32px; gap: 16px; }
     .header { padding: 10px 16px; }
@@ -1110,6 +1143,19 @@ const INTENSITY = {
   heavy:  { temperature: 1.4, maxMultiplier: 1.8, label: "重度" }
 };
 
+/* ============================================================
+   JS 目录（按文件顺序）
+     · 常量与配置：MAX_TOKENS_CAP / BATCH_* / PROXY_VERSION_EXPECTED
+     · 存储层：loadSettings / saveSettings / loadKeys / saveKeys / getHistory / persistHistory / getUsage / addUsage
+     · 用量统计 · 输入草稿 · 二级界面统一开关（openPanel / closePanel / syncBackgroundInert）
+     · 设置面板：Key 管理、模型管理、配置导入导出、补充说明
+     · 改写流程：startRewrite → singleRewrite（流式 doRewriteStream）| batchRewrite（分块）
+     · 质量自检：extractTechnicalTokens / textSimilarity / reportQuality / describeResult
+     · 视图：tokenize / diffWords / renderCompare / switchView / locateSentence
+     · 导出：copyResult / downloadResult / downloadWord / exportHistory / exportConfig
+     · 初始化：DOMContentLoaded 里的绑定（含键盘快捷键）
+   ============================================================ */
+
 const MAX_TOKENS_CAP = 16384;
 const BATCH_CHUNK_SIZE = 500;
 const BATCH_CONTEXT_CHARS = 120;
@@ -1277,30 +1323,90 @@ async function checkProxyHealth() {
 
 // ==================== Header ====================
 function updateHeaderInfo() {
-  const key = getActiveKey();
   const el = document.getElementById("headerInfo");
-  if (key) {
+  if (!el) return;
+  const key = getActiveKey();
+  const model = getCustomModel(loadSettings().model);
+
+  if (key && model) {
     const name = key.name || "未命名";
     const preview = key.key.slice(0, 8) + "…" + key.key.slice(-4);
     el.innerHTML = `<span class="status-dot ok"></span>${escapeHtml(name)} · ${escapeHtml(preview)}`;
-  } else {
-    el.innerHTML = `<span class="status-dot err"></span>未配置 API Key`;
+    return;
   }
+  // 缺什么就说什么，别只给一个红点
+  const missing = [!key ? "API Key" : null, !model ? "模型" : null].filter(Boolean).join(" 和 ");
+  el.innerHTML = `<span class="status-dot err"></span>未配置 ${escapeHtml(missing)} <button class="btn btn-ghost btn-sm status-fix" onclick="openSettings()">去配置</button>`;
 }
 
 // ==================== Settings Modal ====================
+// ==================== 二级界面的统一开关 ====================
+// 四个面板此前各自一套开关逻辑，重复且都缺三件事：焦点陷阱、背景 inert、滚动锁。
+// 后果是按 Tab 会跑到背景、读屏器能读到背景内容、面板打开时背景还能滚。
+const PANEL_CLASS = {
+  modalOverlay: "open",
+  historyOverlay: "show",
+  detectOverlay: "show",
+  announceOverlay: "show"
+};
+let panelReturnFocus = null;
+
+function isAnyPanelOpen() {
+  return Object.keys(PANEL_CLASS).some((id) => {
+    const el = document.getElementById(id);
+    return el && el.classList.contains(PANEL_CLASS[id]);
+  });
+}
+
+// 把面板之外的顶层区块设为 inert：Tab 顺序与无障碍树都会跳过它们
+function syncBackgroundInert() {
+  const on = isAnyPanelOpen();
+  for (const el of Array.from(document.body.children)) {
+    if (el.tagName === "SCRIPT" || el.tagName === "STYLE") continue;
+    // 面板自身、以及轻提示（aria-live，需要能被播报）不参与
+    if (el.classList.contains("modal-overlay") || el.classList.contains("history-overlay") || el.classList.contains("toast")) continue;
+    if ("inert" in el) el.inert = on;
+    if (on) el.setAttribute("aria-hidden", "true");
+    else el.removeAttribute("aria-hidden");
+  }
+  document.body.classList.toggle("panel-open", on);
+}
+
+function openPanel(id, focusId) {
+  const overlay = document.getElementById(id);
+  if (!overlay) return;
+  if (!isAnyPanelOpen()) panelReturnFocus = document.activeElement;
+  overlay.classList.add(PANEL_CLASS[id]);
+  syncBackgroundInert();
+  setTimeout(() => {
+    const preferred = focusId ? document.getElementById(focusId) : null;
+    const target = preferred || overlay.querySelector("input:not([type=hidden]), textarea, select, button");
+    if (target) { try { target.focus(); } catch { /* 忽略 */ } }
+  }, 70);
+}
+
+function closePanel(id) {
+  const overlay = document.getElementById(id);
+  if (!overlay) return;
+  overlay.classList.remove(PANEL_CLASS[id]);
+  syncBackgroundInert();
+  if (!isAnyPanelOpen() && panelReturnFocus) {
+    // 关闭后把焦点还给打开它的那个按钮，键盘用户不会迷路
+    const back = panelReturnFocus;
+    panelReturnFocus = null;
+    if (document.contains(back)) { try { back.focus(); } catch { /* 忽略 */ } }
+  }
+}
+
 function openSettings() {
-  document.getElementById("modalOverlay").classList.add("open");
   renderKeyList();
   renderCustomModels();
-  if (loadKeys().length === 0) {
-    setTimeout(() => { const el = document.getElementById("newKeyValue"); if (el) el.focus(); }, 80);
-  }
+  openPanel("modalOverlay", loadKeys().length === 0 ? "newKeyValue" : null);
 }
 
 function closeSettings(e) {
   if (e && e.target !== document.getElementById("modalOverlay")) return;
-  document.getElementById("modalOverlay").classList.remove("open");
+  closePanel("modalOverlay");
   updateHeaderInfo();
 }
 
@@ -1439,13 +1545,13 @@ function renderKeyList() {
     const radioId = "key_" + k.id;
     return `
       <div class="key-item${active ? " active" : ""}">
-        <input type="radio" class="key-radio" id="${radioId}" name="activeKey"
-          ${active ? "checked" : ""} onchange="setActiveKey('${k.id}')">
+        <input type="radio" class="key-radio" id="${escapeHtml(radioId)}" name="activeKey"
+          ${active ? "checked" : ""} onchange="setActiveKey('${escapeHtml(k.id)}')">
         <div class="key-info">
           <div class="key-name">${escapeHtml(name)}<span style="color:var(--text-secondary);font-size:11px;font-weight:400;margin-left:4px;">${storageNote}</span></div>
           <div class="key-preview">${escapeHtml(preview)}</div>
         </div>
-        <button class="key-delete" title="删除" onclick="deleteKey('${k.id}')">🗑</button>
+        <button class="key-delete" title="删除" onclick="deleteKey('${escapeHtml(k.id)}')">🗑</button>
       </div>
     `;
   }).join("");
@@ -2340,16 +2446,15 @@ async function handleSingleFile(file) {
 
 // ==================== History Panel ====================
 function openHistory() {
-  document.getElementById("historyOverlay").classList.add("show");
   const box = document.getElementById("historySearch");
   if (box) box.value = "";
   renderHistoryPanel();
-  setTimeout(() => { const box2 = document.getElementById("historySearch"); if (box2) box2.focus(); }, 80);
+  openPanel("historyOverlay", "historySearch");
 }
 
 function closeHistory(e) {
   if (e && e.target !== document.getElementById("historyOverlay")) return;
-  document.getElementById("historyOverlay").classList.remove("show");
+  closePanel("historyOverlay");
 }
 
 // ==================== History ====================
@@ -2511,7 +2616,6 @@ function clearHistory() {
 // ==================== AI Detection ====================
 function openDetect() {
   if (!rewrittenText) return toast("请先完成改写");
-  document.getElementById("detectOverlay").classList.add("show");
   document.getElementById("detectPanelBody").innerHTML = `
     <div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;line-height:1.8;">
       由大模型对改写结果逐句打分，取前 20 句分析。<br>
@@ -2519,11 +2623,12 @@ function openDetect() {
       <button class="btn btn-primary btn-sm" onclick="runDetect()">🔍 开始检测</button>
     </div>
   `;
+  openPanel("detectOverlay");
 }
 
 function closeDetect(e) {
   if (e && e.target !== document.getElementById("detectOverlay")) return;
-  document.getElementById("detectOverlay").classList.remove("show");
+  closePanel("detectOverlay");
 }
 
 async function runDetect() {
@@ -3085,13 +3190,13 @@ const ANN_URLS = [
 ];
 
 function openAnnounce() {
-  document.getElementById("announceOverlay").classList.add("show");
   loadAnnounce();
+  openPanel("announceOverlay");
 }
 
 function closeAnnounce(e) {
   if (e && e.target !== document.getElementById("announceOverlay")) return;
-  document.getElementById("announceOverlay").classList.remove("show");
+  closePanel("announceOverlay");
 }
 
 async function loadAnnounce() {

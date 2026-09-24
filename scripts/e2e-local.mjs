@@ -1,6 +1,7 @@
 // 端到端验证：mock 上游 + 真实启动 server.js，走 HTTP 打全链路。
 // 运行：npm run test:e2e
 import http from "node:http";
+import { recordCount } from "./_test-count.mjs";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -107,7 +108,7 @@ if (!ready) {
 
   const h = await fetch(base + "/api/health");
   const hb = await h.json();
-  check("GET /api/health -> ok 且版本为 3.6.x", h.status === 200 && hb.ok === true && /^3\.6\./.test(hb.version),
+  check("GET /api/health -> ok 且版本为 3.7.x", h.status === 200 && hb.ok === true && /^3\.7\./.test(hb.version),
     `status=${h.status} body=${JSON.stringify(hb)}`);
   check("health 不再返回内置模型清单", hb.models === "user-supplied", JSON.stringify(hb.models));
 
@@ -246,5 +247,6 @@ if (!ready) {
     console.log("跳过的项（本机环境限制，非代码问题）：");
     for (const s of skipped) console.log(`  - ${s.name} :: ${s.reason}`);
   }
+  recordCount("npm run test:e2e", results.length, skipped.length);
   shutdown(failed.length ? 1 : 0);
 }
