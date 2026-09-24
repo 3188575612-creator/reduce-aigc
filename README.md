@@ -99,14 +99,14 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 | 命令 | 覆盖范围 |
 |---|---|
 | `npm test` | 代理层回归自测：本地 mock 上游，68 项断言（鉴权、超时、重试、限流、CORS、参数夹取、extraBody、SSRF、版本一致性） |
-| `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路，24 项（含 SSE 流式透传、model 透传、静态路由、限流、CORS、_routes.json / _redirects 覆盖） |
+| `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路，25 项（含 SSE 流式透传、model 透传、静态路由、限流、CORS、_routes.json / _redirects 覆盖） |
 | `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 81 项，并抓运行时异常 |
 | `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
 | `npm run gen:redirects` | 按 git 跟踪清单重新生成 `_redirects`（新增根目录文件后必跑，否则 e2e 会失败） |
 | `npm run check:docs` | 校验 README 标称的条数 / 版本号 / 公告约定与实际一致（CI 会跑，防止文档漂移） |
 | `npm run test:all` | 依次跑前三项（不含线上探测） |
 
-前三项都不需要真实 API Key，合计离线 **173 项**。
+前三项都不需要真实 API Key，合计离线 **174 项**。
 
 > 本机若禁止启动子进程（例如受限沙箱），`test:e2e` 里的 `_redirects` 一致性那项会显示 **SKIP** 并说明原因 ——
 > 这是环境限制、不等于通过，最终由 CI 或普通终端复跑确认。
@@ -260,7 +260,7 @@ Esc 可关闭任意弹窗；`Ctrl/⌘+Enter` 开始改写；深浅色跟随系�
   现在测试脚本会把条数写入 `output/test-counts.json`，新增 `npm run check:docs` 比对
   README 标称值 / 版本号 / 公告约定，**并作为 CI 的一步**，漂移会直接失败
 - 其他：Key 的 id 进属性时也做转义（防御性）、JS 顶部加分节目录注释
-- 测试 168 → 173 项（新增焦点/inert/滚动锁/触屏断点/打印样式 5 项断言）
+- 测试 168 → 174 项（新增焦点/inert/滚动锁/触屏断点/打印样式 5 项断言）
 
 ### 3.6.0
 - **流式输出**：单次改写改为 SSE 流式，边收边显示（代理层早已支持透传 SSE，这轮把前端接上）；

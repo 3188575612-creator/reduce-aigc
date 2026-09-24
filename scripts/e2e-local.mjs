@@ -70,13 +70,16 @@ async function waitReady() {
 }
 
 const results = [];
-const skipped = [];
-function check(name, ok, detail = "") {
-  results.push({ name, ok });
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  -> " + detail}`);
+// 环境能力缺失（例如沙箱禁止 spawn 子进程）与代码错误要分开：前者记为 SKIP 并显式列出，
+// 后者照旧 FAIL —— 不能让环境问题变成"看起来通过了"。
+// 注意：跳过也要占一个用例位（skipped 标记），否则本机（跳过）与 CI（不跳过）的总数不同，
+// README 里的条数就没法写死 —— 这个隐患正是 npm run check:docs 在 CI 上抓出来的。
+function check(name, ok, detail = "", skippedFlag = false) {
+  results.push({ name, ok, skipped: skippedFlag });
+  const tag = skippedFlag ? "SKIP" : (ok ? "PASS" : "FAIL");
+  console.log(`${tag}  ${name}${ok || skippedFlag ? "" : "  -> " + detail}`);
 }
-// 环境能力缺失（例如沙箱禁止 spawn 子进程）与代码错误要分开：
-// 前者记为 SKIP 并显式列出，后者照旧 FAIL —— 不能让环境问题变成"看起来通过了"。
+
 async function checkOrSkip(name, fn) {
   try {
     const out = await fn();
@@ -84,8 +87,7 @@ async function checkOrSkip(name, fn) {
     return out;
   } catch (err) {
     if (err && (err.code === "EBUSY" || err.code === "EPERM" || err.code === "EACCES")) {
-      skipped.push({ name, reason: `${err.code}: ${String(err.message).slice(0, 60)}` });
-      console.log(`SKIP  ${name}  -> 当前环境不允许 spawn 子进程（${err.code}），提交前请在普通终端复跑`);
+      check(name, true, `环境不允许 spawn 子进程（${err.code}），提交前请在普通终端复跑`, true);
       return null;
     }
     check(name, false, err && err.message);
@@ -241,12 +243,13 @@ if (!ready) {
   check("静态路由不暴露 server.js", rel.status === 404, `status=${rel.status}`);
 
   const failed = results.filter((x) => !x.ok);
-  console.log(`\n共 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}` +
-    (skipped.length ? `，环境跳过 ${skipped.length}` : ""));
-  if (skipped.length) {
+  const skippedCount = results.filter((x) => x.skipped).length;
+  console.log(`\n共 ${results.length} 项，通过 ${results.length - failed.length - skippedCount}，失败 ${failed.length}` +
+    (skippedCount ? `，环境跳过 ${skippedCount}` : ""));
+  if (skippedCount) {
     console.log("跳过的项（本机环境限制，非代码问题）：");
-    for (const s of skipped) console.log(`  - ${s.name} :: ${s.reason}`);
+    for (const r of results.filter((x) => x.skipped)) console.log(`  - ${r.name}`);
   }
-  recordCount("npm run test:e2e", results.length, skipped.length);
+  recordCount("npm run test:e2e", results.length, skippedCount);
   shutdown(failed.length ? 1 : 0);
 }
