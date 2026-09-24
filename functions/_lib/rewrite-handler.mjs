@@ -2,7 +2,7 @@
 // 运行环境需提供 Web 标准 API：fetch、Request、Response、URL、AbortController。
 // 放在 functions/_lib/ 下作为源码模块；Pages 的路由面由仓库根的 _routes.json 限定在 /api/*。
 
-export const VERSION = "3.9.0";
+export const VERSION = "3.10.0";
 
 // 本服务不内置任何模型：端点、模型 ID、密钥全部由用户在自己的浏览器里配置后随请求带来。
 // 下面这份是按上游域名匹配的「参数适配」，不是模型清单 —— 用户填官方地址时会自动套用已知约束，
@@ -49,13 +49,61 @@ function isLoopbackHost(host) {
 
 // 内网/保留地址：现在所有请求都打到用户自定义的地址，必须挡住 SSRF 面。
 // 需要连本机或内网自建模型（Ollama 等）时，用 ALLOW_PRIVATE_UPSTREAM=1 显式开启。
+// IP 字面量有大量等价写法：2130706433（十进制）、0x7f000001（十六进制）、0177.0.0.1（八进制）、
+// 127.1（短写）、[::ffff:127.0.0.1]（IPv4 映射）—— 它们在 fetch 里都会解析到 127.0.0.1。
+// 逐个列等价形式必然会漏，所以这里先规范化；规范化不出来又长得像 IP 的，一律按内网拒绝。
+function normalizeIpLiteral(raw) {
+  let h = raw;
+  const mapped = h.match(/^::(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) h = mapped[1];
+  if (h.indexOf(".") < 0) return null;          // 纯 IPv6 交给上层单独判断
+
+  const parts = h.split(".");
+  if (parts.length > 4) return null;
+  const nums = [];
+  for (const p of parts) {
+    let n;
+    if (/^0x[0-9a-f]+$/i.test(p)) n = parseInt(p, 16);
+    else if (/^0\d+$/.test(p)) n = parseInt(p, 8);   // 前导 0 视为八进制
+    else if (/^\d+$/.test(p)) n = parseInt(p, 10);
+    else return null;
+    if (!Number.isFinite(n) || n < 0) return null;
+    nums.push(n);
+  }
+  if (nums.length === 1) {                       // 单段 = 32 位整数
+    const v = nums[0];
+    if (v > 0xffffffff) return null;
+    return [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255].join(".");
+  }
+  const head = nums.slice(0, -1);
+  const tail = nums[nums.length - 1];
+  if (head.some((n) => n > 255) || tail > 0xffffff) return null;
+  const bytes = [...head, ...new Array(4 - nums.length).fill(0), tail];
+  if (bytes.some((n) => n > 255)) return null;
+  return bytes.join(".");
+}
+
 export function isPrivateHost(hostname) {
-  const h = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  const h = String(hostname || "").toLowerCase().trim().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (!h) return true;
   if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return true;
-  if (h === "::1" || h === "0.0.0.0" || h === "::" ) return true;
-  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!v4) return false;
+  if (h === "::1" || h === "::" || h === "0.0.0.0") return true;
+
+  // 纯 IPv6：只拦内网段，其余（公网 IPv6）放行
+  if (h.indexOf(":") >= 0 && h.indexOf(".") < 0) {
+    if (/^fc|^fd/.test(h)) return true;          // fc00::/7 唯一本地地址
+    if (/^fe[89ab]/.test(h)) return true;        // fe80::/10 链路本地
+    return false;
+  }
+
+  // 只由 数字/点/x/冒号 组成且含数字的，一定是 IP 字面量的某种写法
+  const ipLike = /^[0-9a-fx.:]+$/i.test(h) && /\d/.test(h);
+  if (!ipLike) return false;                     // 真正的域名（含非 hex 字母）
+
+  const norm = normalizeIpLiteral(h);
+  const v4 = norm && norm.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!v4) return true;                          // 规范化失败 → 保守拒绝
+
   const [a, b] = [Number(v4[1]), Number(v4[2])];
   if (a === 0 || a === 10 || a === 127) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;

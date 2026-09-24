@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.9", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.9\.\d+/.test(v)],
+    ["代理健康检查显示 v3.10", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.10\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',

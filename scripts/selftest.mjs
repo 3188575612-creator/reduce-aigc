@@ -6,6 +6,7 @@ import fs from "node:fs";
 import {
   handleRewrite, VERSION, UPSTREAM_PROFILES,
   resolveTarget, applyModelLimits, buildRequestBody, mergeExtraBody, cleanUpstreamText,
+  isPrivateHost,
 } from "../functions/_lib/rewrite-handler.mjs";
 
 // 注意：不能 import MODEL_ENDPOINTS 来判断它是否被删（缺失的具名导出会让模块链接失败），
@@ -308,6 +309,30 @@ for (const p of UPSTREAM_PROFILES) {
 }
 check("代理已无内置模型端点表", !/export const MODEL_ENDPOINTS/.test(handlerSrc), "MODEL_ENDPOINTS 仍存在");
 
+// ---------- SSRF：IP 字面量的等价写法不能绕过 ----------
+// 这些写法在 fetch 里都会解析到 127.0.0.1，之前只识别点分十进制，全部漏过。
+const BYPASS_FORMS = [
+  "127.0.0.1", "2130706433", "0x7f000001", "0177.0.0.1", "127.1",
+  "[::ffff:127.0.0.1]", "LOCALHOST.", "0.0.0.0", "[::1]", "169.254.169.254",
+  "10.0.0.1", "192.168.1.1", "172.16.0.1", "100.64.0.1", "metadata.google.internal",
+  "fc00::1", "fd12:3456::1", "fe80::1",
+];
+const leaked = BYPASS_FORMS.filter((h) => !isPrivateHost(h));
+check("内网地址的各种等价写法都被拦（含十进制/十六进制/八进制/短写/IPv4 映射/尾点）",
+  leaked.length === 0, "漏过的写法：" + leaked.join(", "));
+
+const PUBLIC_HOSTS = [
+  "1.1.1.1", "11.0.0.1", "172.15.0.1", "172.32.0.1", "192.169.0.1",
+  "api.deepseek.com", "open.bigmodel.cn", "[2606:4700::1111]", "127.0.0.1.nip.io",
+];
+const overBlocked = PUBLIC_HOSTS.filter((h) => isPrivateHost(h));
+check("公网地址不被误拦（含 172.16/12 边界与公网 IPv6）",
+  overBlocked.length === 0, "误拦：" + overBlocked.join(", "));
+
+check("无法识别的 IP 类写法按内网处理（保守优先）",
+  isPrivateHost("0x7f.1") === true && isPrivateHost("1.2.3.4.5") === true,
+  "保守策略失效");
+
 // ---------- 畸形上游响应：HTML 要清洗成可读文本 ----------
 const htmlErr = cleanUpstreamText('<html><head><style>body{color:red}</style></head><body><h1>502</h1><p>Bad Gateway&nbsp;· 网关错误</p><script>alert(1)</script></body></html>');
 check("HTML 错误响应被清洗成一行可读文本",
@@ -336,7 +361,7 @@ check("前端代码里也不该再有预设模型 id",
     fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
   ), "index.html 仍引用预设模型 id");
 
-check("版本号已升到 3.9.x", VERSION.startsWith("3.9."), VERSION);
+check("版本号已升到 3.10.x", VERSION.startsWith("3.10."), VERSION);
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 check("package.json 与代理版本一致（避免 health 报的版本对不上）",
