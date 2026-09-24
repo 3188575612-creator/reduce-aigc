@@ -2,7 +2,9 @@
 // 为什么要生成：Pages 的发布面 = 仓库里所有被跟踪的文件，靠手写黑名单迟早会漏；
 // 这里以 git 跟踪清单为唯一来源，新增文件只要跑一次 `npm run gen:redirects` 就不会漏，
 // 且 e2e 会断言「清单与 _redirects 一致」，漏跑会导致测试失败。
-import { execSync } from "node:child_process";
+// 用 execFileSync 而不是 execSync：前者直接起进程，不经 cmd.exe / sh。
+// Windows 上受限环境 spawn cmd.exe 会报 EBUSY，且少一层 shell 也少一份注入面。
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,8 +29,18 @@ const NEVER_PUBLISHED = [
 ];
 
 export function trackedFiles() {
-  return execSync("git ls-files", { cwd: ROOT, encoding: "utf8" })
-    .split("\n").map((s) => s.trim()).filter(Boolean);
+  try {
+    return execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8" })
+      .split("\n").map((s) => s.trim()).filter(Boolean);
+  } catch (err) {
+    if (err && (err.code === "EBUSY" || err.code === "EPERM" || err.code === "EACCES")) {
+      // 保留原始 code：调用方要靠它区分「环境不支持」和「真的出错」
+      const wrapped = new Error("当前环境不允许启动子进程，无法执行 git ls-files；请在普通终端运行 npm run gen:redirects");
+      wrapped.code = err.code;
+      throw wrapped;
+    }
+    throw err;
+  }
 }
 
 export function expectedRules() {

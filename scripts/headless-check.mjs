@@ -155,8 +155,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.5", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.5\.\d+/.test(v)],
+    ["代理健康检查显示 v3.6", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.6\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -538,7 +538,7 @@ try {
       const titles = [...document.querySelectorAll(".modal-body .section-title")].map(e => e.textContent.trim());
       return JSON.stringify(titles);
     })()`,
-      (v) => JSON.stringify(JSON.parse(v)) === JSON.stringify(["API Key", "当前模型", "添加 / 管理模型", "补充说明", "配置"])],
+      (v) => JSON.stringify(JSON.parse(v)) === JSON.stringify(["API Key", "当前模型", "添加 / 管理模型", "补充说明", "用量", "配置"])],
     ["补充说明是块级多行输入框（不被压成窄条）", `(() => {
       const el = document.getElementById("customInstruction");
       const box = el.getBoundingClientRect();
@@ -546,6 +546,111 @@ try {
       return JSON.stringify({ ratio: box.width / body.width, h: Math.round(box.height) });
     })()`,
       (v) => { const o = JSON.parse(v); return o.ratio > 0.85 && o.h >= 60; }],
+    ["流式解析：逐块拼出正文", `(async () => {
+      const frames = [
+        'data: {"choices":[{"delta":{"content":"第一"}}]}\\n\\n',
+        'data: {"choices":[{"delta":{"content":"段文字"}}]}\\n\\n',
+        'data: [DONE]\\n\\n'
+      ];
+      const stream = new ReadableStream({
+        start(c) { const enc = new TextEncoder(); for (const f of frames) c.enqueue(enc.encode(f)); c.close(); }
+      });
+      const orig = window.fetch;
+      window.fetch = async () => new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      try {
+        const cm = { id: "s", name: "流式模型", url: "https://x.example.com/v1", modelId: "m", auth: "bearer" };
+        const r = await doRewriteStream("k", cm, "短原文", "");
+        return JSON.stringify({ success: r.success, text: r.text || "", err: r.error || "" });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.success === true && o.text === "第一段文字"; }],
+    ["流式解析：只回思考内容时给出可操作报错", `(async () => {
+      const frames = [
+        'data: {"choices":[{"delta":{"reasoning_content":"我在想很久"}}]}\\n\\n',
+        'data: [DONE]\\n\\n'
+      ];
+      const stream = new ReadableStream({
+        start(c) { const enc = new TextEncoder(); for (const f of frames) c.enqueue(enc.encode(f)); c.close(); }
+      });
+      const orig = window.fetch;
+      window.fetch = async () => new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      try {
+        const cm = { id: "s2", name: "推理模型", url: "https://x.example.com/v1", modelId: "r1", auth: "bearer" };
+        const r = await doRewriteStream("k", cm, "短原文", "");
+        return JSON.stringify({ success: r.success, err: r.error || "" });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.success === false && /思考内容/.test(o.err) && /关闭思考模式/.test(o.err); }],
+    ["流式解析：上游忽略 stream 参数时回退非流式", `(async () => {
+      const orig = window.fetch;
+      window.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: "x" } }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } });
+      try {
+        const cm = { id: "s3", name: "普通模型", url: "https://x.example.com/v1", modelId: "m", auth: "bearer" };
+        const r = await doRewriteStream("k", cm, "短原文", "");
+        return JSON.stringify({ unsupported: r.unsupported === true });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => JSON.parse(v).unsupported === true],
+    ["流式解析：上游报错时把原始错误带出来", `(async () => {
+      const orig = window.fetch;
+      window.fetch = async () => new Response(JSON.stringify({ error: { message: "上游额度不足" } }),
+        { status: 402, headers: { "Content-Type": "application/json" } });
+      try {
+        const cm = { id: "s4", name: "普通模型", url: "https://x.example.com/v1", modelId: "m", auth: "bearer" };
+        const r = await doRewriteStream("k", cm, "短原文", "");
+        return JSON.stringify({ success: r.success, err: r.error || "" });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.success === false && o.err.includes("上游额度不足"); }],
+    ["用量统计累计次数与字数（不猜价格）", `(() => {
+      localStorage.removeItem("aigc_usage");
+      addUsage(100, 120, { prompt_tokens: 200, completion_tokens: 150 });
+      addUsage(50, 60, null);
+      const u = getUsage();
+      renderUsage();
+      return JSON.stringify({
+        requests: u.requests, inputChars: u.inputChars, outputChars: u.outputChars,
+        promptTokens: u.promptTokens, completionTokens: u.completionTokens,
+        shown: document.getElementById("usageStat").textContent
+      });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        return o.requests === 2 && o.inputChars === 150 && o.outputChars === 180 &&
+          o.promptTokens === 200 && o.completionTokens === 150 &&
+          /2/.test(o.shown) && /150/.test(o.shown);
+      }],
+    ["对比视图「改这句」能在输入区选中原文句", `(() => {
+      const orig = "第一句保持不变。第二句需要重新处理。第三句也保持不变。";
+      setInputText(orig);
+      locateSentence("第二句需要重新处理。");
+      const ta = document.getElementById("inputText");
+      return JSON.stringify({
+        selected: ta.value.slice(ta.selectionStart, ta.selectionEnd),
+        focusOk: document.activeElement === ta
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.selected === "第二句需要重新处理。" && o.focusOk; }],
+    ["多文件拖入会按顺序合并", `(async () => {
+      const f1 = new File(["第一部分内容。"], "a.txt", { type: "text/plain" });
+      const f2 = new File(["第二部分内容。"], "b.txt", { type: "text/plain" });
+      await handleFile([f1, f2]);
+      const val = document.getElementById("inputText").value;
+      return JSON.stringify({ value: val, hint: document.getElementById("uploadHint").textContent });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        return o.value.includes("第一部分内容。") && o.value.includes("第二部分内容。") &&
+          o.value.indexOf("第一部分") < o.value.indexOf("第二部分") &&
+          o.hint.includes("已合并 2 个文件");
+      }],
+    ["单文件路径仍可用（不与合并逻辑冲突）", `(async () => {
+      const f = new File(["单独一个文件的内容。"], "solo.txt", { type: "text/plain" });
+      await handleFile(f);
+      return JSON.stringify({ value: document.getElementById("inputText").value, hint: document.getElementById("uploadHint").textContent });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.value === "单独一个文件的内容。" && o.hint.includes("solo.txt"); }],
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',

@@ -371,6 +371,14 @@
   .cmp-add { background: var(--diff-add-bg); color: var(--diff-add-fg); padding: 1px 3px; border-radius: 3px; }
   .cmp-remove { background: var(--diff-del-bg); color: var(--diff-del-fg); text-decoration: line-through; padding: 1px 3px; border-radius: 3px; }
   .cmp-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; font-weight: 600; }
+  .cmp-pick {
+    display: block; margin-bottom: 4px; padding: 1px 8px;
+    border: 1px solid var(--border); border-radius: var(--r-full);
+    background: var(--field-bg); color: var(--text-tertiary);
+    font-size: 10.5px; font-family: inherit; cursor: pointer;
+    transition: color .16s ease, border-color .16s ease;
+  }
+  .cmp-pick:hover { color: var(--accent); border-color: var(--accent); }
 
   /* ============================================================
      质量自检
@@ -750,8 +758,8 @@
 
     <div class="panel-tools">
       <button class="btn btn-ghost btn-sm" id="pickFileBtn" onclick="document.getElementById('fileInput').click()">📁 选择文件</button>
-      <span class="tools-note" id="uploadHint">也可把 .docx / .txt / .md 拖到本卡片任意位置</span>
-      <input type="file" id="fileInput" accept=".docx,.txt,.md" style="display:none" onchange="handleFile(this.files[0])">
+      <span class="tools-note" id="uploadHint">可拖入多个 .docx / .txt / .md，会按文件名顺序合并</span>
+      <input type="file" id="fileInput" accept=".docx,.txt,.md" multiple style="display:none" onchange="handleFile(this.files)">
     </div>
 
     <textarea class="input-area" id="inputText"
@@ -893,6 +901,14 @@
         placeholder="可选：给模型一句补充要求，如「保留所有专业术语」「用更书面化的表达」"></textarea>
       <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">
         留空则用内置指令。写得太长或与原任务冲突会影响结果。
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-title">用量</div>
+      <div id="usageStat" style="font-size:12px;color:var(--text-secondary);line-height:1.8;"></div>
+      <div style="margin-top:8px;">
+        <button class="btn btn-ghost btn-sm" onclick="resetUsage()">清零统计</button>
       </div>
 
       <div class="divider"></div>
@@ -1213,6 +1229,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 渲染 header 状态
   renderKeyList();
+  renderUsage();
   updateHeaderInfo();
   checkProxyHealth();
   initFirstRunNotice();
@@ -1853,6 +1870,61 @@ async function importConfig(file) {
   }
 }
 
+// ==================== 用量统计 ====================
+// 只记录客观数据（次数、字数、上游返回的 token），不做价格推测 —— 各家计价差异太大
+const USAGE_KEY = "aigc_usage";
+
+function getUsage() {
+  try {
+    const u = JSON.parse(localStorage.getItem(USAGE_KEY) || "null");
+    if (!u || typeof u !== "object") throw new Error("empty");
+    return {
+      requests: Number(u.requests) || 0,
+      inputChars: Number(u.inputChars) || 0,
+      outputChars: Number(u.outputChars) || 0,
+      promptTokens: Number(u.promptTokens) || 0,
+      completionTokens: Number(u.completionTokens) || 0,
+      since: u.since || new Date().toISOString()
+    };
+  } catch {
+    return { requests: 0, inputChars: 0, outputChars: 0, promptTokens: 0, completionTokens: 0, since: new Date().toISOString() };
+  }
+}
+
+function addUsage(inputChars, outputChars, usage) {
+  const u = getUsage();
+  u.requests += 1;
+  u.inputChars += inputChars || 0;
+  u.outputChars += outputChars || 0;
+  if (usage) {
+    u.promptTokens += Number(usage.prompt_tokens) || 0;
+    u.completionTokens += Number(usage.completion_tokens) || 0;
+  }
+  try { localStorage.setItem(USAGE_KEY, JSON.stringify(u)); } catch { /* 配额满就算了，统计不是关键路径 */ }
+  renderUsage();
+}
+
+function resetUsage() {
+  try { localStorage.removeItem(USAGE_KEY); } catch { /* 忽略 */ }
+  renderUsage();
+  toast("用量统计已清零");
+}
+
+function renderUsage() {
+  const el = document.getElementById("usageStat");
+  if (!el) return;
+  const u = getUsage();
+  if (!u.requests) {
+    el.textContent = "还没有改写记录。";
+    return;
+  }
+  const tokens = (u.promptTokens || u.completionTokens)
+    ? `　·　上游返回用量 ${u.promptTokens.toLocaleString()} 输入 / ${u.completionTokens.toLocaleString()} 输出 tokens`
+    : "　·　上游未返回 token 用量（流式或部分服务）";
+  el.innerHTML = `累计改写 <strong>${u.requests}</strong> 次　·　处理 ${u.inputChars.toLocaleString()} 字　·　产出 ${u.outputChars.toLocaleString()} 字${tokens}
+    <br><span style="color:var(--text-tertiary)">统计从 ${new Date(u.since).toLocaleDateString()} 开始，仅存在本机浏览器。</span>`;
+}
+
 function setUploadHint(text) {
   const el = document.getElementById("uploadHint");
   if (el) el.textContent = text;
@@ -2034,7 +2106,8 @@ function renderCompare() {
 
     if (i < oSentences.length && i < rSentences.length) {
       const [leftHtml, rightHtml] = diffWords(o, r);
-      html += `<div class="cmp-row"><div class="cmp-left">${leftHtml}</div><div class="cmp-right">${rightHtml}</div></div>`;
+      const pick = `<button class="cmp-pick" onclick="locateSentence(decodeURIComponent('${encodeURIComponent(o)}'))">↖ 改这句</button>`;
+      html += `<div class="cmp-row"><div class="cmp-left">${pick}${leftHtml}</div><div class="cmp-right">${rightHtml}</div></div>`;
     } else if (i < oSentences.length) {
       html += `<div class="cmp-row"><div class="cmp-left" style="background:var(--diff-del-bg);">${escapeHtml(o)}</div><div class="cmp-right" style="color:var(--text-tertiary);">（已删除）</div></div>`;
     } else {
@@ -2043,6 +2116,18 @@ function renderCompare() {
   }
 
   document.getElementById("compareArea").innerHTML = html;
+}
+
+// 对比视图里点「改这句」→ 在输入区选中对应原文句，配合局部改写即可只重改它
+function locateSentence(sentence) {
+  const ta = document.getElementById("inputText");
+  const idx = ta.value.indexOf(sentence);
+  if (idx < 0) return toast("在输入区找不到这一句（原文可能已被修改）");
+  ta.focus();
+  ta.setSelectionRange(idx, idx + sentence.length);
+  const ratio = ta.value.length ? idx / ta.value.length : 0;
+  ta.scrollTop = Math.max(0, ta.scrollHeight * ratio - ta.clientHeight / 2);
+  toast("已选中这一句，点「开始改写」就只改它");
 }
 
 function splitSentences(text) {
@@ -2160,8 +2245,8 @@ const UPLOAD_HINT_DEFAULT = "也可把 .docx / .txt / .md 拖到本卡片任意�
     e.preventDefault();
     depth = 0;
     card.classList.remove("drop-active");
-    const file = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    const dropped = e.dataTransfer.files;
+    if (dropped && dropped.length) handleFile(dropped);
   });
 })();
 
@@ -2183,7 +2268,48 @@ function loadMammoth() {
   return mammothLoading;
 }
 
-async function handleFile(file) {
+async function handleFile(fileOrList) {
+  const files = typeof fileOrList === "string" || (fileOrList && fileOrList.name)
+    ? [fileOrList]
+    : Array.from(fileOrList || []);
+  if (!files.length) return;
+  if (files.length > 1) {
+    const parts = [];
+    const ok = [];
+    for (const f of files) {
+      const text = await readOneFile(f);
+      if (text) { parts.push(text); ok.push(f.name); }
+    }
+    if (!parts.length) return toast("这些文件里都没读到文字");
+    setInputText(parts.join("\n\n"));
+    setUploadHint(`✅ 已合并 ${ok.length} 个文件`);
+    toast(`已按文件名顺序合并 ${ok.length} 个文件（${parts.join("").length} 字）`);
+    return;
+  }
+  // 要 await：否则 handleFile 的 Promise 会提前 resolve，调用方（含测试）无法知道何时读完
+  return handleSingleFile(files[0]);
+}
+
+// 单个文件的读取逻辑（多文件合并与单文件共用）
+async function readOneFile(file) {
+  const name = String(file.name || "").toLowerCase();
+  try {
+    if (name.endsWith(".txt") || name.endsWith(".md")) return (await file.text()).trim();
+    if (name.endsWith(".docx")) {
+      const mammoth = await loadMammoth();
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return String(result.value || "").trim();
+    }
+    toast(`跳过 ${file.name}：仅支持 .docx / .txt / .md`);
+    return "";
+  } catch (err) {
+    toast(`${file.name} 读取失败：${err.message}`);
+    return "";
+  }
+}
+
+async function handleSingleFile(file) {
   if (!file) return;
   const name = file.name.toLowerCase();
 
@@ -2512,6 +2638,136 @@ async function runDetect() {
   }
 }
 
+// ==================== 流式改写 ====================
+// 上游逐块返回，边收边显示 —— 长文本不用等整段生成完
+let streamRenderPending = false;
+
+function renderStreamText(el, text) {
+  if (streamRenderPending) return;
+  streamRenderPending = true;
+  requestAnimationFrame(() => {
+    el.textContent = text;
+    el.scrollTop = el.scrollHeight;
+    const counter = document.getElementById("outputCount");
+    if (counter) counter.textContent = text.length + " 字";
+    streamRenderPending = false;
+  });
+}
+
+// 成功返回 { success, text }；上游不支持流式时返回 { unsupported: true } 由调用方回退
+async function doRewriteStream(apiKey, cm, text, context) {
+  const strategy = STRATEGIES[currentStrategy];
+  const intensity = INTENSITY[currentIntensity] || INTENSITY.normal;
+  const reqBody = {
+    apiKey,
+    model: cm.modelId,
+    baseUrl: cm.url,
+    authType: cm.auth === "apikey" ? "apikey" : "bearer",
+    temperature: intensity.temperature,
+    max_tokens: estimateMaxTokens(text, currentIntensity),
+    messages: buildMessages(strategy, text, context || ""),
+    stream: true
+  };
+  if (cm.noThinking) reqBody.extraBody = { thinking: { type: "disabled" } };
+
+  let resp;
+  try {
+    resp = await fetch("/api/rewrite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reqBody),
+      signal: abortController ? abortController.signal : undefined
+    });
+  } catch (err) {
+    if (err.name === "AbortError") return { stopped: true };
+    return { success: false, error: err.message };
+  }
+
+  if (!resp.ok) {
+    const raw = await resp.text();
+    let msg = `HTTP ${resp.status}`;
+    try {
+      const parsed = JSON.parse(raw);
+      const inner = parsed && parsed.error && (parsed.error.message || parsed.error);
+      if (inner) msg = typeof inner === "string" ? inner : JSON.stringify(inner);
+    } catch {
+      if (raw) msg = raw.slice(0, 200);
+    }
+    return { success: false, error: msg };
+  }
+
+  const ctype = resp.headers.get("Content-Type") || "";
+  if (!ctype.includes("event-stream") || !resp.body) {
+    // 上游忽略了 stream 参数（返回普通 JSON）→ 交给调用方走非流式
+    return { unsupported: true };
+  }
+
+  const el = document.getElementById("outputArea");
+  el.textContent = "";
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let content = "";
+  let reasoning = "";
+  let sawEvent = false;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      const events = buf.split("\n\n");
+      buf = events.pop();
+
+      for (const evt of events) {
+        for (const line of evt.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          let json;
+          try { json = JSON.parse(payload); } catch { continue; }
+          sawEvent = true;
+          if (json.error) {
+            const inner = json.error.message || json.error;
+            return { success: false, error: typeof inner === "string" ? inner : JSON.stringify(inner) };
+          }
+          const delta = (json.choices && json.choices[0] && json.choices[0].delta) || {};
+          if (typeof delta.content === "string" && delta.content) {
+            content += delta.content;
+            renderStreamText(el, content);
+          }
+          if (typeof delta.reasoning_content === "string") reasoning += delta.reasoning_content;
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name === "AbortError") return { stopped: true };
+    return { success: false, error: err.message };
+  }
+
+  if (!sawEvent) return { unsupported: true };
+
+  let result = content.trim()
+    .replace(/^\s*```[a-zA-Z]*\s*\n/, "").replace(/\n```\s*$/, "")
+    .replace(/^(改写后|改写结果|结果)[：:]\s*/, "").trim();
+
+  if (!result) {
+    if (reasoning.trim()) {
+      return {
+        success: false,
+        error: `上游只返回了思考内容（${reasoning.length} 字），没有正文。\n\n可这样解决：\n1. 到设置里给这个模型勾上「关闭思考模式」，再试一次；\n2. 或改用该服务的非推理型号（名字里通常带 flash / turbo / chat，不带 reason / think）。`
+      };
+    }
+    return { success: false, error: "API 返回为空（流式响应里没有正文）" };
+  }
+  if (result.length < text.length * 0.3) {
+    return { success: false, error: `返回过短（只有 ${result.length} 字），可能是输出预算被截断` };
+  }
+  addUsage(text.length, result.length, null);
+  return { success: true, text: result };
+}
+
 async function singleRewrite(apiKey) {
   const s = loadSettings();
   const cm = getCustomModel(s.model);
@@ -2522,7 +2778,12 @@ async function singleRewrite(apiKey) {
   showViewTabs(false);
   outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 正在调用 ' + escapeHtml(cm ? cm.name : "-") + ' 改写…</span>';
 
-  const result = await doRewrite(apiKey, s, originalText, true, "");
+  let result = await doRewriteStream(apiKey, cm, originalText, "");
+  if (result.unsupported) {
+    // 上游不吃流式参数：退回一次性请求（保留原有重试与预算放大逻辑）
+    outputEl.innerHTML = '<span style="color:var(--text-secondary)">⏳ 该服务不支持流式，正在一次性改写…</span>';
+    result = await doRewrite(apiKey, s, originalText, true, "");
+  }
   if (cm) setRewriting(false);
 
   if (result.success) {
@@ -2761,6 +3022,7 @@ async function doRewrite(apiKey, s, text, animate, context) {
         continue;
       }
 
+      addUsage(text.length, result.length, data.usage);
       if (animate) await typewriterEffect(document.getElementById("outputArea"), result);
       return { success: true, text: result };
     } catch (err) {
