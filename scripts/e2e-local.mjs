@@ -22,6 +22,13 @@ const upstream = http.createServer((req, res) => {
     hits.push({ path: req.url, method: req.method, auth: req.headers.authorization, body: parsed });
 
     // 流式请求：按 SSE 分块吐字，验证代理是「边收边转发」而不是攒完再发
+    // 路径里带 /html/ 时返回网关 HTML，用于验证代理的清洗
+    if (req.url.indexOf("/html/") >= 0) {
+      res.writeHead(502, { "Content-Type": "text/html" });
+      res.end("<html><body><h1>502 Bad Gateway</h1><p>上游网关错误</p></body></html>");
+      return;
+    }
+
     if (parsed.stream) {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
       for (const piece of ["E2E ", "流式 ", "改写结果"]) {
@@ -110,7 +117,7 @@ if (!ready) {
 
   const h = await fetch(base + "/api/health");
   const hb = await h.json();
-  check("GET /api/health -> ok 且版本为 3.8.x", h.status === 200 && hb.ok === true && /^3\.8\./.test(hb.version),
+  check("GET /api/health -> ok 且版本为 3.9.x", h.status === 200 && hb.ok === true && /^3\.9\./.test(hb.version),
     `status=${h.status} body=${JSON.stringify(hb)}`);
   check("health 不再返回内置模型清单", hb.models === "user-supplied", JSON.stringify(hb.models));
 
@@ -210,6 +217,18 @@ if (!ready) {
   check("同源 Origin -> 200 且回显 Origin",
     sameOrigin.status === 200 && sameOrigin.headers.get("access-control-allow-origin") === base,
     `status=${sameOrigin.status} acao=${sameOrigin.headers.get("access-control-allow-origin")}`);
+
+  const htmlUpstream = await fetch(base + "/api/rewrite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, baseUrl: `http://127.0.0.1:${UPSTREAM_PORT}/html/v1/chat/completions` }),
+  });
+  const htmlBody = await htmlUpstream.json();
+  check("上游返回 HTML 时报错内容已清洗（不留标签）",
+    htmlUpstream.status === 502 &&
+    /Bad Gateway/.test(htmlBody.error.message) &&
+    !/[<>]/.test(htmlBody.error.message),
+    `status=${htmlUpstream.status} msg=${JSON.stringify(htmlBody.error && htmlBody.error.message).slice(0, 90)}`);
 
   const streamResp = await fetch(base + "/api/rewrite", {
     method: "POST",

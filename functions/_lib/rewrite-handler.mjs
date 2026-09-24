@@ -2,7 +2,7 @@
 // 运行环境需提供 Web 标准 API：fetch、Request、Response、URL、AbortController。
 // 放在 functions/_lib/ 下作为源码模块；Pages 的路由面由仓库根的 _routes.json 限定在 /api/*。
 
-export const VERSION = "3.8.0";
+export const VERSION = "3.9.0";
 
 // 本服务不内置任何模型：端点、模型 ID、密钥全部由用户在自己的浏览器里配置后随请求带来。
 // 下面这份是按上游域名匹配的「参数适配」，不是模型清单 —— 用户填官方地址时会自动套用已知约束，
@@ -180,6 +180,22 @@ export function applyModelLimits(target, temperature, maxTokens) {
     if (profile.maxTokens) tokens = Math.min(tokens, profile.maxTokens);
   }
   return { temperature: temp, maxTokens: tokens };
+}
+
+
+// 上游（尤其是网关/中转站）出错时常返回 HTML 页面，直接塞给用户就是满屏标签。
+// 这里剥掉标签与脚本，压成一行可读文本。
+export function cleanUpstreamText(input) {
+  return String(input || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function buildRequestBody(target, messages, temperature, maxTokens, stream) {
@@ -362,7 +378,8 @@ export async function handleRewrite(request, env = {}) {
     }
 
     if (!contentType.includes("application/json")) {
-      return json({ error: { message: text.slice(0, 500) || `HTTP ${resp.status}` } }, resp.status || 502, cors);
+      const cleaned = cleanUpstreamText(text).slice(0, 400);
+      return json({ error: { message: cleaned || `HTTP ${resp.status}` } }, resp.status || 502, cors);
     }
 
     return new Response(text, {

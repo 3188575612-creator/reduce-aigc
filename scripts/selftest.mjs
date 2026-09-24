@@ -5,7 +5,7 @@ import { recordCount } from "./_test-count.mjs";
 import fs from "node:fs";
 import {
   handleRewrite, VERSION, UPSTREAM_PROFILES,
-  resolveTarget, applyModelLimits, buildRequestBody, mergeExtraBody,
+  resolveTarget, applyModelLimits, buildRequestBody, mergeExtraBody, cleanUpstreamText,
 } from "../functions/_lib/rewrite-handler.mjs";
 
 // 注意：不能 import MODEL_ENDPOINTS 来判断它是否被删（缺失的具名导出会让模块链接失败），
@@ -308,6 +308,16 @@ for (const p of UPSTREAM_PROFILES) {
 }
 check("代理已无内置模型端点表", !/export const MODEL_ENDPOINTS/.test(handlerSrc), "MODEL_ENDPOINTS 仍存在");
 
+// ---------- 畸形上游响应：HTML 要清洗成可读文本 ----------
+const htmlErr = cleanUpstreamText('<html><head><style>body{color:red}</style></head><body><h1>502</h1><p>Bad Gateway&nbsp;· 网关错误</p><script>alert(1)</script></body></html>');
+check("HTML 错误响应被清洗成一行可读文本",
+  htmlErr === "502 Bad Gateway · 网关错误", JSON.stringify(htmlErr));
+check("HTML 实体被解码",
+  cleanUpstreamText("&lt;error&gt; &amp; &quot;quota&quot;") === '<error> & "quota"',
+  JSON.stringify(cleanUpstreamText("&lt;error&gt; &amp; &quot;quota&quot;")));
+check("清洗函数对空值安全",
+  cleanUpstreamText("") === "" && cleanUpstreamText(null) === "", "空值处理异常");
+
 // ---------- extraBody：让用户能自己关掉思考模式（纯逻辑部分） ----------
 const merged = mergeExtraBody({ messages: ["m"], stream: false }, { messages: ["hack"], stream: true, top_k: 5, "bad key": 1 });
 check("mergeExtraBody 过滤 messages / stream 与非法键名",
@@ -326,7 +336,7 @@ check("前端代码里也不该再有预设模型 id",
     fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
   ), "index.html 仍引用预设模型 id");
 
-check("版本号已升到 3.8.x", VERSION.startsWith("3.8."), VERSION);
+check("版本号已升到 3.9.x", VERSION.startsWith("3.9."), VERSION);
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 check("package.json 与代理版本一致（避免 health 报的版本对不上）",

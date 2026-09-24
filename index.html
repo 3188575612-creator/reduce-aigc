@@ -2044,6 +2044,51 @@ function renderUsage() {
     <br><span style="color:var(--text-tertiary)">统计从 ${new Date(u.since).toLocaleDateString()} 开始，仅存在本机浏览器。</span>`;
 }
 
+// ==================== 多标签页同步 ====================
+// 多个标签页同时打开时，本地存储是共享的，但各页只持有打开时的快照：
+// 另一页加了模型 / 删了 Key / 清了历史，本页毫无感知，继续操作还会用旧快照覆盖别人。
+// storage 事件只在“其他标签页”写入时触发（本页自己的改动不触发），所以不会循环。
+function syncFromStorage(key) {
+  if (key === STORAGE_KEY) {
+    renderCustomModels();
+    updateHeaderInfo();
+    const instr = document.getElementById("customInstruction");
+    if (instr && document.activeElement !== instr) instr.value = loadSettings().customInstruction || "";
+    return true;
+  }
+  if (key === KEYS_KEY) {
+    renderKeyList();
+    updateHeaderInfo();
+    return true;
+  }
+  if (key === HISTORY_KEY) {
+    const panel = document.getElementById("historyOverlay");
+    if (panel && panel.classList.contains("show")) renderHistoryPanel();
+    return true;
+  }
+  if (key === USAGE_KEY) {
+    renderUsage();
+    return true;
+  }
+  if (key === DRAFT_KEY) {
+    // 另一页正在输入：只在本地还没内容时才跟随，避免抢用户光标
+    const ta = document.getElementById("inputText");
+    if (ta && !ta.value.trim() && document.activeElement !== ta) {
+      try {
+        const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+        if (d && d.text) setInputText(d.text);
+      } catch { /* 忽略 */ }
+    }
+    return true;
+  }
+  return false;
+}
+
+window.addEventListener("storage", (e) => {
+  if (!e || !e.key) return;
+  syncFromStorage(e.key);
+});
+
 function setUploadHint(text) {
   const el = document.getElementById("uploadHint");
   if (el) el.textContent = text;
@@ -2828,6 +2873,7 @@ async function doRewriteStream(apiKey, cm, text, context) {
   let content = "";
   let reasoning = "";
   let sawEvent = false;
+  let sawTerminator = false;   // 收到 [DONE] 或 finish_reason，才算上游正常收尾
 
   try {
     while (true) {
@@ -2842,7 +2888,8 @@ async function doRewriteStream(apiKey, cm, text, context) {
         for (const line of evt.split("\n")) {
           if (!line.startsWith("data:")) continue;
           const payload = line.slice(5).trim();
-          if (!payload || payload === "[DONE]") continue;
+          if (!payload) continue;
+          if (payload === "[DONE]") { sawEvent = true; sawTerminator = true; continue; }
           let json;
           try { json = JSON.parse(payload); } catch { continue; }
           sawEvent = true;
@@ -2850,7 +2897,9 @@ async function doRewriteStream(apiKey, cm, text, context) {
             const inner = json.error.message || json.error;
             return { success: false, error: typeof inner === "string" ? inner : JSON.stringify(inner) };
           }
-          const delta = (json.choices && json.choices[0] && json.choices[0].delta) || {};
+          const choice = (json.choices && json.choices[0]) || null;
+          if (choice && choice.finish_reason) sawTerminator = true;
+          const delta = (choice && choice.delta) || {};
           if (typeof delta.content === "string" && delta.content) {
             content += delta.content;
             renderStreamText(el, content);
@@ -2883,7 +2932,9 @@ async function doRewriteStream(apiKey, cm, text, context) {
     return { success: false, error: `返回过短（只有 ${result.length} 字），可能是输出预算被截断` };
   }
   addUsage(text.length, result.length, null);
-  return { success: true, text: result };
+  // 上游没发结束标记就断了：内容可能是半截。不直接报错（有些上游本来就不发），
+  // 但要把这件事带出去，让调用方提示用户核对
+  return { success: true, text: result, truncated: !sawTerminator };
 }
 
 async function singleRewrite(apiKey) {
@@ -2906,6 +2957,9 @@ async function singleRewrite(apiKey) {
 
   if (result.success) {
     rewrittenText = result.text;
+    if (result.truncated) {
+      toast("⚠ 上游没发送结束标记，结果可能不完整，请核对末尾");
+    }
     outputEl.textContent = rewrittenText;
     document.getElementById("outputCount").textContent = rewrittenText.length + " 字";
     showViewTabs(true);
@@ -3126,7 +3180,12 @@ async function doRewrite(apiKey, s, text, animate, context) {
           };
         }
         // ② 真的空响应
-        lastError = completionTokens ? `API 返回为空（用了 ${completionTokens} token）` : "API 返回为空";
+        if (!data.choices) {
+          // 有响应但没有 choices：多半是地址填错（打到了别的接口）而不是模型没输出
+          lastError = "上游返回的不是 OpenAI 兼容结构（缺少 choices 字段）——请确认 API 地址是否指向 chat/completions 接口";
+        } else {
+          lastError = completionTokens ? `API 返回为空（用了 ${completionTokens} token）` : "API 返回为空";
+        }
         continue;
       }
 

@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.8", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.8\.\d+/.test(v)],
+    ["代理健康检查显示 v3.9", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.9\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -827,6 +827,141 @@ try {
       return JSON.stringify({ emptyText, addedText });
     })()`,
       (v) => { const o = JSON.parse(v); return /未配置/.test(o.emptyText) && !/未配置/.test(o.addedText); }],
+
+    ["流式未收到结束标记时标记为可能截断", `(async () => {
+      const frames = [
+        'data: {"choices":[{"delta":{"content":"只有一半"}}]}\\n\\n'
+        // 故意不发 [DONE]，也不给 finish_reason —— 模拟上游中途断开
+      ];
+      const stream = new ReadableStream({
+        start(c) { const enc = new TextEncoder(); for (const f of frames) c.enqueue(enc.encode(f)); c.close(); }
+      });
+      const orig = window.fetch;
+      window.fetch = async () => new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      try {
+        const cm = { id: "t1", name: "截断测试", url: "https://x.example.com/v1", modelId: "m", auth: "bearer" };
+        const r = await doRewriteStream("k", cm, "短原文", "");
+        return JSON.stringify({ success: r.success, truncated: r.truncated === true, text: r.text || "" });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.success === true && o.truncated === true; }],
+
+    ["流式带 [DONE] 时不标记截断", `(async () => {
+      const frames = [
+        'data: {"choices":[{"delta":{"content":"完整结果"}}]}\\n\\n',
+        'data: [DONE]\\n\\n'
+      ];
+      const stream = new ReadableStream({
+        start(c) { const enc = new TextEncoder(); for (const f of frames) c.enqueue(enc.encode(f)); c.close(); }
+      });
+      const orig = window.fetch;
+      window.fetch = async () => new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      try {
+        const cm = { id: "t2", name: "完整测试", url: "https://x.example.com/v1", modelId: "m", auth: "bearer" };
+        const r = await doRewriteStream("k", cm, "短原文", "");
+        return JSON.stringify({ success: r.success, truncated: r.truncated === true });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.success === true && o.truncated === false; }],
+
+    ["上游结构不符时给出精准诊断（而不是含糊的「返回为空」）", `(async () => {
+      const orig = window.fetch;
+      window.fetch = async () => new Response(JSON.stringify({ foo: "bar" }),
+        { status: 200, headers: { "Content-Type": "application/json" } });
+      try {
+        const s = loadSettings();
+        const r = await doRewrite("k", s, "短原文", false, "");
+        return JSON.stringify({ success: r.success, err: r.error || "" });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.success === false && /choices/.test(o.err) && /地址/.test(o.err); }],
+
+    ["另一标签页改了 Key 时本页会同步刷新", `(() => {
+      // storage 事件在真实场景由其他标签页触发；这里手动派发来验证同步逻辑
+      const fire = (key) => window.dispatchEvent(new StorageEvent("storage", { key }));
+      // 先让本页显示"未配置"，再模拟另一页写入了 Key
+      const s = loadSettings();
+      const keys = loadKeys();
+      keys.push({ id: "k_sync", name: "另一页的 Key", key: "sk-sync-1234567890" });
+      s.activeKeyId = "k_sync";
+      localStorage.setItem("aigc_keys", JSON.stringify(keys));
+      localStorage.setItem("aigc_settings", JSON.stringify(s));
+      const before = document.getElementById("headerInfo").textContent;
+      fire("aigc_keys");
+      fire("aigc_settings");
+      const after = document.getElementById("headerInfo").textContent;
+      return JSON.stringify({ before: before.slice(0, 30), after: after.slice(0, 30) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return /另一页的 Key/.test(o.after); }],
+
+    ["另一标签页改了模型列表时本页下拉会更新", `(() => {
+      const s = loadSettings();
+      s.customModels = [{ id: "cm_sync", name: "另一页加的模型", url: "https://sync.example.com/v1", modelId: "sync-m", auth: "bearer" }];
+      s.model = "cm_sync";
+      localStorage.setItem("aigc_settings", JSON.stringify(s));
+      window.dispatchEvent(new StorageEvent("storage", { key: "aigc_settings" }));
+      const sel = document.getElementById("modelSelect");
+      return JSON.stringify({
+        options: [...sel.options].map((o) => o.textContent),
+        header: document.getElementById("headerInfo").textContent.slice(0, 30)
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.options.includes("另一页加的模型") && !/未配置/.test(o.header); }],
+
+    ["无关的存储键不会触发刷新（不做多余渲染）", `(() => {
+      let touched = false;
+      const orig = window.renderCustomModels;
+      window.renderCustomModels = function () { touched = true; return orig.apply(this, arguments); };
+      window.dispatchEvent(new StorageEvent("storage", { key: "some-unrelated-key" }));
+      const result = touched;
+      window.renderCustomModels = orig;
+      return String(result);
+    })()`,
+      (v) => v === "false"],
+
+    ["超长无标点单句会被硬切（不会把整句塞进一次请求）", `(() => {
+      const long = "a".repeat(1200);
+      const chunks = splitIntoChunks(long, 500);
+      return JSON.stringify({ count: chunks.length, max: Math.max(...chunks.map((c) => c.length)) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.count >= 3 && o.max <= 500; }],
+
+    ["纯英文长文按词切且 diff 正常", `(() => {
+      const a = "The quick brown fox jumps over the lazy dog and then runs away quickly.";
+      const b = "A quick brown fox leaps over a lazy dog and then runs away fast.";
+      const tokens = tokenize(a);
+      const [left, right] = diffWords(a, b);
+      return JSON.stringify({
+        tokens: tokens.length,
+        firstToken: tokens[0],
+        marked: left.indexOf("cmp-remove") >= 0 || right.indexOf("cmp-add") >= 0
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.tokens >= 12 && o.firstToken === "The" && o.marked; }],
+
+    ["Markdown 表格与代码块不会导致分段异常", `(() => {
+      const md = "| 项目 | 数值 |\\n| --- | --- |\\n| A | 1 |\\n| B | 2 |\\n\\n\`\`\`js\\nconst x = 1;\\n\`\`\`";
+      const chunks = splitIntoChunks(md, 500);
+      const tech = extractTechnicalTokens("见 \`exam_grade\` 表与 2.6.13 版本");
+      return JSON.stringify({
+        chunks: chunks.length,
+        joined: chunks.join("").length,
+        tech: tech.sort()
+      });
+    })()`,
+      (v) => {
+        const o = JSON.parse(v);
+        return o.chunks >= 1 && o.joined > 20 && o.tech.indexOf("exam_grade") >= 0 && o.tech.indexOf("2.6.13") >= 0;
+      }],
+
+    ["emoji 与代理对不会被切坏", `(() => {
+      const tokens = tokenize("测试🎉emoji😀混排");
+      return JSON.stringify({
+        tokens: tokens,
+        emojiIntact: tokens.indexOf("🎉") >= 0 && tokens.indexOf("😀") >= 0
+      });
+    })()`,
+      (v) => JSON.parse(v).emojiIntact === true],
 
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
