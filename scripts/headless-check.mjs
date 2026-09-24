@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.7", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.7\.\d+/.test(v)],
+    ["代理健康检查显示 v3.8", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.8\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -718,6 +718,116 @@ try {
       });
     })()`,
       (v) => { const o = JSON.parse(v); return o.hasCoarse && o.minHeight; }],
+    ["关键文字对比度达 WCAG AA（真实渲染取样）", `(() => {
+      // 直接量渲染结果：前景色 + 向上合成出的有效背景（含玻璃面板的半透明层）
+      const parseC = (c) => { const m = c.match(/rgba?\\(([^)]+)\\)/); if (!m) return null;
+        const p = m[1].split(",").map((x) => parseFloat(x.trim()));
+        return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+      const over = (f, b) => ({ r: f.r*f.a + b.r*(1-f.a), g: f.g*f.a + b.g*(1-f.a), b: f.b*f.a + b.b*(1-f.a), a: 1 });
+      const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); };
+        return 0.2126*f(c.r) + 0.7152*f(c.g) + 0.0722*f(c.b); };
+      const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b); return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05); };
+      const effBg = (el) => {
+        const stack = []; let node = el;
+        while (node && node.nodeType === 1) {
+          const bg = parseC(getComputedStyle(node).backgroundColor);
+          if (bg && bg.a > 0) stack.push(bg);
+          if (bg && bg.a === 1) break;
+          node = node.parentElement;
+        }
+        let acc = { r: 255, g: 255, b: 255, a: 1 };
+        for (let i = stack.length - 1; i >= 0; i--) acc = over(stack[i], acc);
+        return acc;
+      };
+      const sels = [".panel-title", ".char-count", ".foot-note", ".tools-note", ".strategy-label",
+        ".strategy-desc", ".action-tip", ".header-info", ".history-item-orig", ".section-title",
+        ".cmp-left", "#outputArea", "#inputText", ".btn-rewrite", ".notice-bar", ".qh-warn", ".qh-bad",
+        ".cmp-add", ".cmp-remove", ".custom-model-item span"];
+      const bad = [];
+      for (const sel of sels) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        const cs = getComputedStyle(el);
+        const fg = parseC(cs.color), bg = effBg(el);
+        const size = parseFloat(cs.fontSize);
+        const large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
+        const need = large ? 3.0 : 4.5;
+        const r = ratio(fg, bg);
+        if (r < need) bad.push(sel + "=" + r.toFixed(2) + ":1(需" + need + ")");
+      }
+      return JSON.stringify(bad);
+    })()`,
+      (v) => JSON.parse(v).length === 0],
+
+    ["深色主题的文字令牌对最苛刻背景也达标", `(() => {
+      // 直接遍历 CSSOM 找 @media (prefers-color-scheme: dark) 里的 :root 变量
+      const vars = {};
+      const collect = (rules) => {
+        for (const r of rules) {
+          const isDark = (r.conditionText || "").indexOf("prefers-color-scheme: dark") >= 0;
+          if (isDark && r.cssRules) {
+            for (const inner of r.cssRules) {
+              if (!inner.selectorText || inner.selectorText.indexOf(":root") < 0 || !inner.style) continue;
+              for (let i = 0; i < inner.style.length; i++) {
+                const name = inner.style[i];
+                if (name.indexOf("--") === 0) vars[name] = inner.style.getPropertyValue(name).trim();
+              }
+            }
+            continue;
+          }
+          if (r.cssRules) collect(r.cssRules);
+        }
+      };
+      for (const sheet of document.styleSheets) {
+        try { collect(sheet.cssRules); } catch (e) { /* 跨域样式表跳过 */ }
+      }
+
+      const parseC = (h) => { const x = h.replace("#", "");
+        return { r: parseInt(x.slice(0,2),16), g: parseInt(x.slice(2,4),16), b: parseInt(x.slice(4,6),16) }; };
+      const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); };
+        return 0.2126*f(c.r) + 0.7152*f(c.g) + 0.0722*f(c.b); };
+      const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b); return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05); };
+
+      // 深色下最苛刻的三种底：玻璃合成 #1c2027、卡片 #191c22、页面 #101216
+      const bgs = ["#1c2027", "#191c22", "#101216"];
+      const names = ["--text", "--text-secondary", "--text-tertiary", "--danger-text", "--warning-text", "--success-text"];
+      const bad = [];
+      for (const name of names) {
+        const val = vars[name];
+        if (!val || val.indexOf("#") !== 0) { bad.push(name + "=缺失"); continue; }
+        for (const bg of bgs) {
+          const r = ratio(parseC(val), parseC(bg));
+          if (r < 4.5) bad.push(name + " on " + bg + " = " + r.toFixed(2));
+        }
+      }
+      return JSON.stringify(bad);
+    })()`,
+      (v) => JSON.parse(v).length === 0],
+
+    ["加/删模型后状态栏立即同步（曾漏掉刷新）", `(() => {
+      const info = () => document.getElementById("headerInfo").textContent.trim();
+      if (!getActiveKey()) {
+        document.getElementById("newKeyName").value = "状态栏用例 Key";
+        document.getElementById("newKeyValue").value = "sk-statusbar";
+        addApiKey();
+      }
+      const s = loadSettings();
+      s.customModels = [];
+      s.model = null;
+      saveSettings(s);
+      renderCustomModels();
+      updateHeaderInfo();
+      const emptyText = info();
+
+      document.getElementById("cmName").value = "状态栏用例模型";
+      document.getElementById("cmUrl").value = "https://hdr.example.com/v1/chat/completions";
+      document.getElementById("cmId").value = "m-statusbar";
+      addCustomModel();
+      const addedText = info();
+      return JSON.stringify({ emptyText, addedText });
+    })()`,
+      (v) => { const o = JSON.parse(v); return /未配置/.test(o.emptyText) && !/未配置/.test(o.addedText); }],
+
     ["提示敏感度文案存在", 'document.getElementById("detectPanelBody").textContent',
       (v) => v.includes("模型自评") || v.includes("权威")],
     ["首次提示条默认可见且含隐私与学术提示", '(() => { const el = document.getElementById("firstRunNotice"); return JSON.stringify({ exists: !!el, visible: el ? getComputedStyle(el).display !== "none" : false, hasText: el ? /第三方大模型/.test(el.textContent) && /学术诚信/.test(el.textContent) : false }); })()',

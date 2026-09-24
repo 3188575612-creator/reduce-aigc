@@ -21,17 +21,25 @@
     --card-border: rgba(17, 20, 29, 0.07);
     --border: #e6e8ec;
     --text: #1a1d24;
-    --text-secondary: #666d78;
-    --text-tertiary: #9aa1ac;
+    /* 辅助文字按 WCAG AA 反推。旧值 #9aa1ac 在浅底只有 2.0–2.6:1（基本不可读）。
+       tertiary 以「玻璃面板上实测合成背景 #e2e2e4」为基准 —— 那是全站最苛刻的底。 */
+    --text-secondary: #4f5762;
+    --text-tertiary: #5f6572;
     --surface: #f7f8fa;
 
     --accent: #4f46e5;
     --accent-hover: #4338ca;
     --accent-light: #eef1ff;
+    /* 语义色分两套：原色用于背景/图标/圆点，-text 变体专供文字，保证 ≥4.5:1 */
     --danger: #e5484d;
+    --danger-text: #b4383d;
     --danger-light: #fdeced;
     --success: #0f9d6e;
+    --success-text: #0b7350;
     --warning: #c47f17;
+    --warning-text: #8c5a10;
+    --on-accent: #ffffff;
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23575e69' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 
     --r-sm: 8px;
     --r-md: 12px;
@@ -92,16 +100,22 @@
       --border: #2b3038;
       --text: #e9ebef;
       --text-secondary: #98a0ac;
-      --text-tertiary: #6b7280;
+      /* 深色下以玻璃面板上的合成背景 #1c2027 为基准反推 */
+      --text-tertiary: #7f8898;
       --surface: #15181d;
 
       --accent: #8b8cf7;
       --accent-hover: #a5a6ff;
       --accent-light: #23243a;
       --danger: #ff6b6b;
+      --danger-text: #ff6b6b;
       --danger-light: #3a2124;
       --success: #34d399;
+      --success-text: #34d399;
       --warning: #fbbf24;
+      --warning-text: #fbbf24;
+      --on-accent: #14161a;
+      --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2398a0ac' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 
       --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
       --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 28px -12px rgba(0, 0, 0, 0.6);
@@ -141,10 +155,6 @@
       --glow-1: rgba(99, 102, 241, 0.22);
       --glow-2: rgba(14, 165, 233, 0.15);
       --glow-3: rgba(168, 85, 247, 0.13);
-    }
-    .btn-primary { color: #14161a; }
-    .model-select {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2398a0ac' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
     }
   }
 
@@ -422,7 +432,7 @@
   }
   .btn:disabled { opacity: .6; cursor: default; }
   .btn-primary {
-    background: var(--accent); color: #fff;
+    background: var(--accent); color: var(--on-accent);
     box-shadow: 0 1px 2px rgba(79, 70, 229, .25), 0 8px 20px -8px rgba(79, 70, 229, .5);
   }
   .btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
@@ -508,7 +518,7 @@
     font-size: 15px; line-height: 1; color: var(--text-secondary);
     cursor: pointer; transition: background .16s ease, color .16s ease;
   }
-  .modal-close:hover { background: var(--danger-light); color: var(--danger); }
+  .modal-close:hover { background: var(--danger-light); color: var(--danger-text); }
   .modal-body {
     position: relative; z-index: 1;
     display: flex; flex-direction: column;
@@ -603,7 +613,7 @@
     font-size: 13px; color: var(--text-tertiary); cursor: pointer;
     transition: background .16s ease, color .16s ease;
   }
-  .key-delete:hover { background: var(--danger-light); color: var(--danger); }
+  .key-delete:hover { background: var(--danger-light); color: var(--danger-text); }
   .key-empty { padding: 22px; text-align: center; font-size: 12.5px; color: var(--text-tertiary); }
 
   /* ---- 表单 ---- */
@@ -632,7 +642,7 @@
     background-color: var(--field-bg);
     font-size: 13.5px; font-family: inherit; color: var(--text);
     outline: none; cursor: pointer; appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23666d78' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: var(--select-arrow);
     background-repeat: no-repeat; background-position: right 13px center;
     transition: border-color .16s ease;
   }
@@ -651,7 +661,7 @@
     transition: background .16s ease, color .16s ease;
   }
   .custom-model-item .cm-edit { color: var(--accent); }
-  .custom-model-item .cm-del { color: var(--danger); }
+  .custom-model-item .cm-del { color: var(--danger-text); }
   .custom-model-item .cm-edit:hover, .custom-model-item .cm-del:hover { background: var(--field-bg-strong); }
   .cm-option {
     display: flex; align-items: center; gap: 7px; margin-top: 9px;
@@ -979,7 +989,7 @@
     <div class="history-panel-footer">
       <div style="display:flex;gap:8px;">
         <button class="btn btn-ghost btn-sm" onclick="exportHistory()" style="flex:1;">⬇ 导出全部</button>
-        <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="flex:1;color:var(--danger);">🗑 清空全部</button>
+        <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="flex:1;color:var(--danger-text);">🗑 清空全部</button>
       </div>
     </div>
   </div>
@@ -1494,6 +1504,7 @@ function addCustomModel() {
   document.getElementById("cmAuth").value = "bearer";
   document.getElementById("cmNoThinking").checked = false;
   renderCustomModels();
+  updateHeaderInfo();   // 加了模型就要立刻反映到状态栏，否则仍显示「未配置 模型」
   toast(wasEdit ? "已更新" : "已添加");
 }
 
@@ -1507,6 +1518,7 @@ function editCustomModel(id) {
   document.getElementById("cmAuth").value = m.auth === "apikey" ? "apikey" : "bearer";
   document.getElementById("cmNoThinking").checked = !!m.noThinking;
   cmEditId = id;
+  updateHeaderInfo();
   document.getElementById("cmAddBtn").textContent = "✓";
 }
 
@@ -1525,6 +1537,7 @@ function delCustomModel(id) {
   if (s.model === id) s.model = s.customModels.length ? s.customModels[0].id : null;
   saveSettings(s);
   renderCustomModels();
+  updateHeaderInfo();   // 删掉当前模型后状态栏要跟着变
 }
 
 function renderKeyList() {
@@ -1655,17 +1668,17 @@ async function testConnection() {
       const parsed = extractContent(data);
       const text = parsed.text.trim().slice(0, 20);
       if (!text && parsed.reasoning) {
-        el.innerHTML = `<span style="color:var(--warning)">⚠ ${escapeHtml(label)} 连通正常，但只回了 ${parsed.reasoning.length} 字思考内容、没有正文（完成原因 ${escapeHtml(parsed.finishReason || "未知")}）。请勾上「关闭思考模式」，或改用非推理型号。</span>`;
+        el.innerHTML = `<span style="color:var(--warning-text)">⚠ ${escapeHtml(label)} 连通正常，但只回了 ${parsed.reasoning.length} 字思考内容、没有正文（完成原因 ${escapeHtml(parsed.finishReason || "未知")}）。请勾上「关闭思考模式」，或改用非推理型号。</span>`;
       } else {
-        el.innerHTML = `<span style="color:var(--success)">✅ ${escapeHtml(label)} 可用 · ${ms}ms · 返回「${escapeHtml(text)}」</span>`;
+        el.innerHTML = `<span style="color:var(--success-text)">✅ ${escapeHtml(label)} 可用 · ${ms}ms · 返回「${escapeHtml(text)}」</span>`;
       }
     } else {
       const rawMsg = (data && data.error && (data.error.message || data.error)) || raw.slice(0, 160) || `HTTP ${resp.status}`;
       const msg = typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg);
-      el.innerHTML = `<span style="color:var(--danger)">❌ HTTP ${resp.status}：${escapeHtml(msg.slice(0, 220))}</span>`;
+      el.innerHTML = `<span style="color:var(--danger-text)">❌ HTTP ${resp.status}：${escapeHtml(msg.slice(0, 220))}</span>`;
     }
   } catch (err) {
-    el.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(err.message)}</span>`;
+    el.innerHTML = `<span style="color:var(--danger-text)">❌ ${escapeHtml(err.message)}</span>`;
   }
 }
 
@@ -2535,7 +2548,7 @@ function renderHistoryPanel() {
         <button class="btn btn-ghost btn-sm" onclick="loadHistory(${all.indexOf(r)})">↩ 载入</button>
         <button class="btn btn-ghost btn-sm" onclick="viewHistory(${all.indexOf(r)})">👁 查看</button>
         <button class="btn btn-ghost btn-sm" onclick="copyHistory(${all.indexOf(r)})">📋 复制</button>
-        <button class="btn btn-ghost btn-sm" onclick="deleteHistory(${all.indexOf(r)})" style="color:var(--danger);">🗑</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteHistory(${all.indexOf(r)})" style="color:var(--danger-text);">🗑</button>
       </div>
     </div>
   `).join("");
@@ -2739,7 +2752,7 @@ async function runDetect() {
 
     panel.innerHTML = html;
   } catch (err) {
-    panel.innerHTML = `<div style="text-align:center;padding:30px;color:var(--danger);">❌ ${escapeHtml(err.message)}<br><br><button class="btn btn-primary btn-sm" onclick="runDetect()">🔄 重试</button></div>`;
+    panel.innerHTML = `<div style="text-align:center;padding:30px;color:var(--danger-text);">❌ ${escapeHtml(err.message)}<br><br><button class="btn btn-primary btn-sm" onclick="runDetect()">🔄 重试</button></div>`;
   }
 }
 
@@ -2902,11 +2915,11 @@ async function singleRewrite(apiKey) {
     updateApplyScopeBtn();
     toast("✅ 改写完成");
   } else if (result.stopped) {
-    outputEl.innerHTML = '<span style="color:var(--warning)">⏹ 已停止</span>';
+    outputEl.innerHTML = '<span style="color:var(--warning-text)">⏹ 已停止</span>';
     toast("已停止");
   } else {
     lastErrorText = String(result.error || "");
-    outputEl.innerHTML = `<span style="color:var(--danger)">❌ ${escapeHtml(lastErrorText)}</span>` +
+    outputEl.innerHTML = `<span style="color:var(--danger-text)">❌ ${escapeHtml(lastErrorText)}</span>` +
       `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">` +
       `<button class="btn btn-ghost btn-sm" onclick="copyErrorDetail()">📋 复制错误详情</button>` +
       `<button class="btn btn-ghost btn-sm" onclick="retryLast()">🔁 再试一次</button>` +
@@ -3007,7 +3020,7 @@ async function batchRewrite(apiKey) {
 // 分段结束后统一收尾：写回结果、存历史、做质量自检
 function finishBatch(results, total, progressWrap, progressText, progressFill, outputEl, warnText) {
   if (!results.length) {
-    outputEl.innerHTML = '<span style="color:var(--warning)">没有生成任何内容</span>';
+    outputEl.innerHTML = '<span style="color:var(--warning-text)">没有生成任何内容</span>';
     progressWrap.style.display = "none";
     return;
   }

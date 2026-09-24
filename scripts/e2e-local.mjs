@@ -110,7 +110,7 @@ if (!ready) {
 
   const h = await fetch(base + "/api/health");
   const hb = await h.json();
-  check("GET /api/health -> ok 且版本为 3.7.x", h.status === 200 && hb.ok === true && /^3\.7\./.test(hb.version),
+  check("GET /api/health -> ok 且版本为 3.8.x", h.status === 200 && hb.ok === true && /^3\.8\./.test(hb.version),
     `status=${h.status} body=${JSON.stringify(hb)}`);
   check("health 不再返回内置模型清单", hb.models === "user-supplied", JSON.stringify(hb.models));
 
