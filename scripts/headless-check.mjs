@@ -672,14 +672,18 @@ try {
           o.closed.main && o.closed.aria === null && o.closed.lock === false;
       }],
     ["关闭面板后焦点回到打开它的按钮", `(async () => {
+      // openPanel 的聚焦是延时的：不要等固定毫秒（CI 上会不够），改为轮询到条件成立
+      const until = async (fn, ms = 3000) => {
+        const t0 = Date.now();
+        while (Date.now() - t0 < ms) { if (fn()) return true; await new Promise((r) => setTimeout(r, 40)); }
+        return false;
+      };
       const btn = document.getElementById("pickFileBtn");
       btn.focus();
       openHistory();
-      await new Promise((r) => setTimeout(r, 160));   // 聚焦是延时的，等它落定
-      const inside = document.querySelector(".history-panel").contains(document.activeElement);
-      closeHistory({ target: document.getElementById("historyOverlay") });
-      await new Promise((r) => setTimeout(r, 60));
-      return JSON.stringify({ focusedInside: inside, backToTrigger: document.activeElement === btn });
+      const inside = await until(() => document.querySelector(".history-panel").contains(document.activeElement));
+      const back = await until(() => { closeHistory({ target: document.getElementById("historyOverlay") }); return document.activeElement === btn; }, 2000);
+      return JSON.stringify({ focusedInside: inside, backToTrigger: back });
     })()`,
       (v) => { const o = JSON.parse(v); return o.focusedInside && o.backToTrigger; }],
     ["轻提示不参与 inert（aria-live 要能被播报）", `(() => {
