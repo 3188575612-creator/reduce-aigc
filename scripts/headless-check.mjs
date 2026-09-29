@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.10", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.10\.\d+/.test(v)],
+    ["代理健康检查显示 v3.11", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.11\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -539,7 +539,7 @@ try {
       const titles = [...document.querySelectorAll(".modal-body .section-title")].map(e => e.textContent.trim());
       return JSON.stringify(titles);
     })()`,
-      (v) => JSON.stringify(JSON.parse(v)) === JSON.stringify(["API Key", "当前模型", "添加 / 管理模型", "补充说明", "用量", "配置"])],
+      (v) => { const a = JSON.parse(v); return JSON.stringify(a.slice(0, 3)) === JSON.stringify(["API Key", "当前模型", "添加 / 管理模型"]) && a.length === 7 && /高级/.test(a[3]); }],
     ["补充说明是块级多行输入框（不被压成窄条）", `(() => {
       const el = document.getElementById("customInstruction");
       const box = el.getBoundingClientRect();
@@ -994,7 +994,7 @@ try {
       (v) => JSON.stringify(JSON.parse(v)) === JSON.stringify([["system", true, true, false], ["user", true, false, true]])],
     ["历史记录保存原文全文并可完整回填", `(() => {
       originalText = "原".repeat(1234) + "文";
-      rewrittenText = "改".repeat(567) + "写";
+      setRewritten("改".repeat(567) + "写");
       currentStrategy = "sentence-shuffle";
       currentIntensity = "heavy";
       localStorage.removeItem("aigc_history");
@@ -1012,7 +1012,7 @@ try {
     ["历史超过 50 条自动截断", `(() => {
       localStorage.removeItem("aigc_history");
       originalText = "甲";
-      rewrittenText = "乙";
+      setRewritten("乙");
       for (let i = 0; i < 55; i++) saveHistory();
       return getHistory().length;
     })()`,
@@ -1037,6 +1037,131 @@ try {
       return JSON.stringify({ inSession, inLocal, loaded });
     })()`,
       (v) => { const o = JSON.parse(v); return o.inSession && !o.inLocal && o.loaded === 1; }],
+
+    // ---- AI 痕迹自查（runDetect 拆出的纯函数 + 全流程渲染）----
+    ["检测切句：按句读切分、合并标点、过滤短碎片", `JSON.stringify(splitSentencesForDetect("第一句足够长。短。第二句也足够长！第三句依然足够长\\n碎片"))`,
+      (v) => { const a = JSON.parse(v); return a.length === 3 && a[0] === "第一句足够长。" && a[1] === "第二句也足够长！" && a[2].startsWith("第三句依然足够长"); }],
+    ["检测解析：JSON 被解释性文字包裹也能提取", `(() => {
+      const r = parseDetectResponse("好的，分析结果如下：\\n{\\"totalScore\\":42,\\"level\\":\\"中\\",\\"sentences\\":[{\\"idx\\":0,\\"score\\":50,\\"highlight\\":false}]}\\n以上。");
+      return JSON.stringify(r);
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.totalScore === 42 && o.level === "中" && o.sentences.length === 1; }],
+    ["检测解析：无 JSON 时用「75分」式数字兜底，无法解析返回 null", `JSON.stringify([
+      parseDetectResponse("这段文字的AI痕迹大约是75分"),
+      parseDetectResponse("无法判断，换个问题吧")
+    ])`,
+      (v) => { const [a, b] = JSON.parse(v); return a && a.totalScore === 75 && a.level === "高" && b === null; }],
+    ["runDetect 全流程：渲染总分、等级与高风险句标记", `(async () => {
+      const s = loadSettings();
+      s.customModels = [{ id: "det", name: "检测模型", url: "https://det.example.com/v1", modelId: "det-m", auth: "bearer" }];
+      s.model = "det";
+      saveSettings(s);
+      saveKeys([{ id: "det_k", name: "检测", key: "sk-detect-test" }], true);
+      s.activeKeyId = "det_k";
+      saveSettings(s);
+      originalText = "原文第一句内容。原文第二句内容。";
+      setRewritten("改写后的第一句足够长度。改写后的第二句也足够长度。");
+      const payload = { totalScore: 72, level: "高", sentences: [{ idx: 0, score: 80, highlight: true }, { idx: 1, score: 40, highlight: false }] };
+      const orig = window.fetch;
+      window.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payload) } }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } });
+      try {
+        await runDetect();
+        const html = document.getElementById("detectPanelBody").innerHTML;
+        return JSON.stringify({
+          score: html.includes("72"), level: html.includes("高风险"),
+          highTag: (html.match(/高风险/g) || []).length >= 2,
+          midBg: html.includes("risk-mid-bg"),
+          disclaimer: html.includes("非权威检测")
+        });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.score && o.level && o.highTag && o.midBg && o.disclaimer; }],
+    ["runDetect：模型未返回结构化结果时走兜底面板", `(async () => {
+      const orig = window.fetch;
+      window.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: "我觉得这段文字还行，没什么明显问题。" } }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } });
+      try {
+        await runDetect();
+        const html = document.getElementById("detectPanelBody").innerHTML;
+        return JSON.stringify({ fallback: html.includes("未返回结构化检测结果"), retry: html.includes("重试") });
+      } finally { window.fetch = orig; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.fallback && o.retry; }],
+
+    // ---- 导出路径（downloadResult / downloadWord / saveBlob）----
+    ["下载 MD：文件名、MIME 与内容结构正确", `(async () => {
+      originalText = "原始段落内容。";
+      setRewritten("改写后的段落内容。");
+      const clicks = [];
+      const origClick = HTMLAnchorElement.prototype.click;
+      const origCreate = URL.createObjectURL;
+      let blobText = "";
+      HTMLAnchorElement.prototype.click = function () { clicks.push(this.download); };
+      URL.createObjectURL = (b) => { b.text().then((t) => { blobText = t; }); return "blob:mock"; };
+      try {
+        downloadResult();
+        for (let i = 0; i < 50 && !blobText; i++) await new Promise((r) => setTimeout(r, 20));
+        return JSON.stringify({
+          name: clicks[0] || "", md: blobText.includes("# 论文改写结果"),
+          hasOrig: blobText.includes("原始段落内容。"), hasNew: blobText.includes("改写后的段落内容。"),
+          disclaimer: blobText.includes("仅供写作参考")
+        });
+      } finally { HTMLAnchorElement.prototype.click = origClick; URL.createObjectURL = origCreate; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return /^rewrite_\d+\.md$/.test(o.name) && o.md && o.hasOrig && o.hasNew && o.disclaimer; }],
+    ["导出 Word：.doc 文件名、msword 内容且保留分段", `(async () => {
+      setRewritten("第一段文字。\\n\\n第二段文字。");
+      const clicks = [];
+      const origClick = HTMLAnchorElement.prototype.click;
+      const origCreate = URL.createObjectURL;
+      let blobText = "";
+      HTMLAnchorElement.prototype.click = function () { clicks.push(this.download); };
+      URL.createObjectURL = (b) => { b.text().then((t) => { blobText = t; }); return "blob:mock"; };
+      try {
+        downloadWord();
+        for (let i = 0; i < 50 && !blobText; i++) await new Promise((r) => setTimeout(r, 20));
+        return JSON.stringify({
+          name: clicks[0] || "",
+          isWord: blobText.includes("urn:schemas-microsoft-com:office:word"),
+          p1: blobText.includes("<p>第一段文字。</p>"), p2: blobText.includes("<p>第二段文字。</p>")
+        });
+      } finally { HTMLAnchorElement.prototype.click = origClick; URL.createObjectURL = origCreate; }
+    })()`,
+      (v) => { const o = JSON.parse(v); return /^rewrite_\d+\.doc$/.test(o.name) && o.isWord && o.p1 && o.p2; }],
+
+    // ---- 空态按钮禁用（U1）----
+    ["空结果时复制/下载/导出/再降一次全部禁用", `(() => {
+      setRewritten("");
+      return JSON.stringify([...document.querySelectorAll(".result-action")].map((b) => b.disabled));
+    })()`,
+      (v) => { const a = JSON.parse(v); return a.length === 4 && a.every((x) => x === true); }],
+    ["setRewritten 有值即启用、清空即禁用（唯一写入口）", `(() => {
+      setRewritten("有结果了");
+      const enabled = [...document.querySelectorAll(".result-action")].every((b) => !b.disabled);
+      setRewritten("");
+      const disabled = [...document.querySelectorAll(".result-action")].every((b) => b.disabled);
+      const src = [...document.querySelectorAll("script")].map((el) => el.textContent).join("\\n");
+      const directWrites = (src.match(/[^.\\w]rewrittenText\\s*=[^=]/g) || []).length;
+      return JSON.stringify({ enabled, disabled, directWrites });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.enabled && o.disabled && o.directWrites <= 2; }],
+
+    // ---- 高级设置折叠（U2）----
+    ["高级设置默认折叠，展开后三个低频分节都在", `(() => {
+      const d = document.getElementById("advSettings");
+      if (!d) return JSON.stringify({ exists: false });
+      const before = { open: d.open, summary: d.querySelector("summary").textContent };
+      d.open = true;
+      const inside = {
+        instruction: !!d.querySelector("#customInstruction"),
+        usage: !!d.querySelector("#usageStat"),
+        config: !!d.querySelector("#configFile")
+      };
+      d.open = false;
+      return JSON.stringify({ exists: true, before, inside });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.exists && o.before.open === false && /高级/.test(o.before.summary) && o.inside.instruction && o.inside.usage && o.inside.config; }],
   ];
 
   for (const [name, expr, check] of probes) {

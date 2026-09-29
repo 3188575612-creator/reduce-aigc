@@ -100,13 +100,13 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 |---|---|
 | `npm test` | 代理层回归自测：本地 mock 上游，74 项断言（鉴权、超时、重试、限流、CORS、参数夹取、extraBody、SSRF、HTML 清洗、版本一致性） |
 | `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路，26 项（含 SSE 流式透传、model 透传、静态路由、限流、CORS、上游 HTML 清洗、_routes.json / _redirects 覆盖） |
-| `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 94 项，并抓运行时异常 |
+| `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、AI 痕迹自查（runDetect）、导出路径（MD / Word）、空态按钮禁用、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 104 项，并抓运行时异常 |
 | `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
 | `npm run gen:redirects` | 按 git 跟踪清单重新生成 `_redirects`（新增根目录文件后必跑，否则 e2e 会失败） |
 | `npm run check:docs` | 校验 README 标称的条数 / 版本号 / 公告约定与实际一致（CI 会跑，防止文档漂移） |
 | `npm run test:all` | 依次跑前三项（不含线上探测） |
 
-前三项都不需要真实 API Key，合计离线 **194 项**。
+前三项都不需要真实 API Key，合计离线 **204 项**。
 
 > 本机若禁止启动子进程（例如受限沙箱），`test:e2e` 里的 `_redirects` 一致性那项会显示 **SKIP** 并说明原因 ——
 > 这是环境限制、不等于通过，最终由 CI 或普通终端复跑确认。
@@ -247,6 +247,21 @@ Esc 可关闭任意弹窗；`Ctrl/⌘+Enter` 开始改写；深浅色跟随系�
 - 无障碍：`:focus-visible` 焦点环、`prefers-reduced-motion` 降级、滚动条与对比度统一处理
 
 ## 变更记录
+
+### 3.11.0（体验 + 可维护性：双视角审视后的系统优化）
+- **空结果时右栏操作按钮全部禁用**：「复制 / 下载 MD / 导出 Word / 再降一次」此前在无结果时
+  也可点击（点了只弹一句 toast）。现在由 `setRewritten()` 统一接管：它是写 `rewrittenText` 的
+  唯一入口，赋值即刷新按钮可用态 —— 开关判断放在写函数里，不靠调用方自觉
+- **设置面板做减法**：「补充说明 / 用量 / 导入导出」三个低频分节折进原生 `<details>`「高级」
+  折叠区（键盘与读屏天然可达），默认只留 Key + 模型的主配置路径
+- **AI 痕迹自查（runDetect）零测试覆盖 → 全流程有断言**：拆出两个纯函数
+  `splitSentencesForDetect`（切句）与 `parseDetectResponse`（JSON / 数字兜底解析），
+  外加渲染与兜底面板的 mock 全流程测试，共 5 条新断言
+- **导出路径补断言**：下载 MD / 导出 Word 的文件名、MIME、内容结构与分段保留，共 2 条
+- **长函数拆分**：`runDetect` 111 → 51 行；`doRewriteStream` 118 → 67 行（SSE 读取独立为
+  `readSSEStream`）；`doRewrite` 与流式共用 `buildRewriteBody` / `cleanRewriteResult`，
+  消除两处请求体组装与正文清洗的重复代码
+- 测试 194 → 204 项
 
 ### 3.10.0（安全：SSRF 防护加固）
 - **发现并修掉 6 种绕过 SSRF 防护的写法**。原判定只认「点分十进制 4 段」，
