@@ -346,6 +346,8 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
   }
+  /* 改写进行中：输入区锁定为只读，给一点可感知但克制的视觉反馈 */
+  .input-area[readonly] { background: var(--field-bg); color: var(--text-secondary); }
   .output-area, .compare-area { white-space: pre-wrap; word-break: break-word; }
   .output-placeholder { color: var(--text-tertiary); font-style: italic; }
 
@@ -383,6 +385,7 @@
   .cmp-right { flex: 1; min-width: 0; padding-left: 12px; color: var(--text); }
   .cmp-add { background: var(--diff-add-bg); color: var(--diff-add-fg); padding: 1px 3px; border-radius: 3px; }
   .cmp-remove { background: var(--diff-del-bg); color: var(--diff-del-fg); text-decoration: line-through; padding: 1px 3px; border-radius: 3px; }
+  .cmp-legend { font-size: 11.5px; color: var(--text-tertiary); margin-bottom: 10px; line-height: 1.8; }
   .cmp-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; font-weight: 600; }
   .cmp-pick {
     display: block; margin-bottom: 4px; padding: 1px 8px;
@@ -1246,7 +1249,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 字数统计 + 草稿自动保存
   document.getElementById("inputText").addEventListener("input", () => {
-    document.getElementById("inputCount").textContent = document.getElementById("inputText").value.length + " 字";
+    updateInputCount();
     scheduleDraftSave();
   });
 
@@ -1729,12 +1732,27 @@ function retryLast() {
   startRewrite();
 }
 
+// 改写进行中的全局标志：改写输入的入口（拖拽文件、历史载入等）据此拦截，
+// 防止用户在改写中途改原文 —— 结果对应的是发起时的文本，中途改动会让结果与输入对不上
+let rewriting = false;
+
 function setRewriting(on) {
+  rewriting = on;
   const btn = document.getElementById("rewriteBtn");
   const stop = document.getElementById("stopBtn");
   btn.disabled = on;
   btn.innerHTML = on ? '<span class="spinner"></span>改写中…' : "🔄 开始改写";
   stop.style.display = on ? "" : "none";
+  // 锁定输入侧（readOnly 保留选中复制，比 disabled 打扰小）；结束时按结果有无恢复右栏按钮
+  document.getElementById("inputText").readOnly = on;
+  document.querySelectorAll(".strategy-btn").forEach((b) => { b.disabled = on; });
+  ["pickFileBtn", "applyScopeBtn"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = on;
+  });
+  document.querySelectorAll(".result-action").forEach((b) => { b.disabled = on || !rewrittenText; });
+  const clearBtn = document.querySelector('.foot-actions .btn[onclick^="clearAll"]');
+  if (clearBtn) clearBtn.disabled = on;
 }
 
 function stopRewrite() {
@@ -2154,9 +2172,22 @@ function describeResult(quality) {
   return parts.join(" · ");
 }
 
+// 字数统计的唯一更新点：超 2000 字会触发分段改写，提前在计数里告诉用户（不打断、并入已有信息行）
+function updateInputCount() {
+  const len = document.getElementById("inputText").value.length;
+  const el = document.getElementById("inputCount");
+  if (len > 2000) {
+    el.textContent = `${len} 字 · 将分 ${Math.ceil(len / BATCH_CHUNK_SIZE)} 段改写`;
+    el.style.color = "var(--warning-text)";
+  } else {
+    el.textContent = len + " 字";
+    el.style.color = "";
+  }
+}
+
 function setInputText(text) {
   document.getElementById("inputText").value = text;
-  document.getElementById("inputCount").textContent = text.length + " 字";
+  updateInputCount();
   scheduleDraftSave();
 }
 
@@ -2290,7 +2321,7 @@ function renderCompare() {
   const oSentences = splitSentences(orig);
   const rSentences = splitSentences(rewritten);
 
-  let html = "";
+  let html = `<div class="cmp-legend">左 原文 · 右 改写后：<span class="cmp-remove">删除</span> <span class="cmp-add">改动</span>；点句首「↖ 改这句」选中该句单独重改</div>`;
   const maxLen = Math.max(oSentences.length, rSentences.length);
 
   for (let i = 0; i < maxLen; i++) {
@@ -2462,6 +2493,7 @@ function loadMammoth() {
 }
 
 async function handleFile(fileOrList) {
+  if (rewriting) return toast("改写进行中，请先停止或等待完成");
   const files = typeof fileOrList === "string" || (fileOrList && fileOrList.name)
     ? [fileOrList]
     : Array.from(fileOrList || []);
@@ -2603,7 +2635,7 @@ function renderHistoryPanel() {
     : all;
 
   if (!all.length) {
-    el.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;">暂无记录</div>';
+    el.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:30px;line-height:1.8;">还没有改写记录<br><span style="font-size:12px;color:var(--text-tertiary);">完成一次改写后会自动保存在这里（仅存在本机浏览器）</span></div>';
     return;
   }
   if (!records.length) {
@@ -2630,6 +2662,7 @@ function renderHistoryPanel() {
 
 // 把历史里的原文放回输入区，方便重新改
 function loadHistory(index) {
+  if (rewriting) return toast("改写进行中，请先停止或等待完成");
   const r = getHistory()[index];
   if (!r) return;
   setInputText(r.original || "");
@@ -2665,6 +2698,7 @@ function exportHistory() {
 }
 
 function viewHistory(i) {
+  if (rewriting) return toast("改写进行中，请先停止或等待完成");
   const r = getHistory()[i];
   if (!r) return;
   originalText = r.original || "";

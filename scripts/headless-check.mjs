@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.11", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.11\.\d+/.test(v)],
+    ["代理健康检查显示 v3.12", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.12\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -1162,6 +1162,87 @@ try {
       return JSON.stringify({ exists: true, before, inside });
     })()`,
       (v) => { const o = JSON.parse(v); return o.exists && o.before.open === false && /高级/.test(o.before.summary) && o.inside.instruction && o.inside.usage && o.inside.config; }],
+
+    // ---- 改写中锁定（防止中途改输入导致结果对不上）----
+    ["改写中锁定输入侧，结束后按结果有无恢复", `(() => {
+      setRewritten("已有结果");
+      setRewriting(true);
+      const locked = {
+        inputRO: document.getElementById("inputText").readOnly,
+        stratDisabled: [...document.querySelectorAll(".strategy-btn")].every((b) => b.disabled),
+        pickDisabled: document.getElementById("pickFileBtn").disabled,
+        actionsDisabled: [...document.querySelectorAll(".result-action")].every((b) => b.disabled),
+        stopVisible: document.getElementById("stopBtn").style.display !== "none"
+      };
+      setRewriting(false);
+      const restored = {
+        inputRO: document.getElementById("inputText").readOnly,
+        stratDisabled: [...document.querySelectorAll(".strategy-btn")].every((b) => b.disabled),
+        actionsEnabled: [...document.querySelectorAll(".result-action")].every((b) => !b.disabled)
+      };
+      setRewritten("");
+      setRewriting(true); setRewriting(false);
+      const emptyRestored = [...document.querySelectorAll(".result-action")].every((b) => b.disabled);
+      return JSON.stringify({ locked, restored, emptyRestored });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        return o.locked.inputRO && o.locked.stratDisabled && o.locked.pickDisabled && o.locked.actionsDisabled && o.locked.stopVisible &&
+          !o.restored.inputRO && !o.restored.stratDisabled && o.restored.actionsEnabled && o.emptyRestored; }],
+    ["改写中拖拽文件被拦截并提示", `(async () => {
+      setRewriting(true);
+      const f = new File(["拖进来的内容。"], "d.txt", { type: "text/plain" });
+      await handleFile([f]);
+      const blocked = document.getElementById("toast").textContent;
+      const untouched = !document.getElementById("inputText").value.includes("拖进来的内容");
+      setRewriting(false);
+      return JSON.stringify({ blocked, untouched });
+    })()`,
+      (v) => { const o = JSON.parse(v); return /改写进行中/.test(o.blocked) && o.untouched; }],
+    ["改写中历史载入被拦截（不覆盖进行中的输入输出）", `(() => {
+      localStorage.removeItem("aigc_history");
+      originalText = "历史原文"; setRewritten("历史结果"); saveHistory();
+      setRewriting(true);
+      loadHistory(0);
+      const blocked = document.getElementById("toast").textContent;
+      viewHistory(0);
+      const blocked2 = document.getElementById("toast").textContent;
+      setRewriting(false);
+      return JSON.stringify({ blocked, blocked2 });
+    })()`,
+      (v) => { const o = JSON.parse(v); return /改写进行中/.test(o.blocked) && /改写进行中/.test(o.blocked2); }],
+
+    // ---- 超量即时提示 ----
+    ["超 2000 字时字数计数提示分段并变色，回落后恢复", `(() => {
+      setInputText("字".repeat(2100));
+      const el = document.getElementById("inputCount");
+      const over = { text: el.textContent, warn: el.style.color.includes("warning") };
+      setInputText("短文本");
+      const back = { text: document.getElementById("inputCount").textContent, warn: document.getElementById("inputCount").style.color };
+      setInputText("");
+      return JSON.stringify({ over, back });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        return o.over.text === "2100 字 · 将分 5 段改写" && o.over.warn && o.back.text === "3 字" && !o.back.warn; }],
+
+    // ---- 对比视图图例 + 空历史引导 ----
+    ["对比视图顶部有图例说明颜色与「改这句」用法", `(() => {
+      originalText = "对比原文第一句。对比原文第二句。";
+      setRewritten("对比改写第一句。对比改写第二句。");
+      renderCompare();
+      const legend = document.querySelector("#compareArea .cmp-legend");
+      return JSON.stringify({
+        exists: !!legend,
+        text: legend ? legend.textContent.slice(0, 50) : "",
+        hasSwatch: legend ? !!legend.querySelector(".cmp-remove") && !!legend.querySelector(".cmp-add") : false
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.exists && /原文/.test(o.text) && /改这句/.test(o.text) && o.hasSwatch; }],
+    ["空历史显示引导文案而非干巴巴的「暂无记录」", `(() => {
+      localStorage.removeItem("aigc_history");
+      renderHistoryPanel();
+      return document.getElementById("historyPanelList").textContent;
+    })()`,
+      (v) => /还没有改写记录/.test(v) && /自动保存/.test(v)],
   ];
 
   for (const [name, expr, check] of probes) {
