@@ -162,6 +162,22 @@ if (!ready) {
   }
   check("Pages 路由面限定在 /api/*（_routes.json）", routesOk, routesDetail);
 
+  // Pages 走静态发布、不经 server.js/worker.js，安全响应头只能靠 _headers 声明。
+  // 缺了它，线上就是零响应头状态（探针 probe:live 会实测线上是否真的生效）。
+  let headersOk = false;
+  let headersDetail = "";
+  try {
+    const txt = fs.readFileSync(path.join(ROOT, "_headers"), "utf8");
+    headersOk = /^\/\*\s*$/m.test(txt)
+      && /Content-Security-Policy:.*script-src 'self'/.test(txt)
+      && /object-src 'none'/.test(txt)
+      && /X-Content-Type-Options: nosniff/.test(txt);
+    headersDetail = headersOk ? `CSP+nosniff 已声明（${txt.split("\n").length} 行）` : "内容不完整";
+  } catch (err) {
+    headersDetail = "缺少 _headers：" + err.message;
+  }
+  check("_headers 声明 CSP 与安全头（Pages 静态路径的唯一防线）", headersOk, headersDetail);
+
   await checkOrSkip("_redirects 覆盖全部被跟踪的非公开文件（发布面收口）", async () => {
     const { expectedRules } = await import("./gen-redirects.mjs");
     const rules = expectedRules();

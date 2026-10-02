@@ -99,14 +99,14 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 | 命令 | 覆盖范围 |
 |---|---|
 | `npm test` | 代理层回归自测：本地 mock 上游，80 项断言（鉴权、超时、重试、限流、CORS、参数夹取、extraBody、SSRF、HTML 清洗、流式空闲超时、限流 IP 加固、版本一致性） |
-| `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路，26 项（含 SSE 流式透传、model 透传、静态路由、限流、CORS、上游 HTML 清洗、_routes.json / _redirects 覆盖） |
+| `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路，27 项（含 SSE 流式透传、model 透传、静态路由、限流、CORS、上游 HTML 清洗、_headers 安全头声明、_routes.json / _redirects 覆盖） |
 | `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、AI 痕迹自查（runDetect）、导出路径（MD / Word）、空态按钮禁用、改写中输入锁定、超量分段提示、对比图例、**XSS 注入面**（恶意 id 走真实渲染路径）、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 113 项，并抓运行时异常 |
 | `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
 | `npm run gen:redirects` | 按 git 跟踪清单重新生成 `_redirects`（新增根目录文件后必跑，否则 e2e 会失败） |
 | `npm run check:docs` | 校验 README 标称的条数 / 版本号 / 公告约定与实际一致（CI 会跑，防止文档漂移） |
 | `npm run test:all` | 依次跑前三项（不含线上探测） |
 
-前三项都不需要真实 API Key，合计离线 **219 项**。
+前三项都不需要真实 API Key，合计离线 **220 项**。
 
 > 本机若禁止启动子进程（例如受限沙箱），`test:e2e` 里的 `_redirects` 一致性那项会显示 **SKIP** 并说明原因 ——
 > 这是环境限制、不等于通过，最终由 CI 或普通终端复跑确认。
@@ -278,10 +278,14 @@ Esc 可关闭任意弹窗；`Ctrl/⌘+Enter` 开始改写；深浅色跟随系�
   （`CF-Connecting-IP` 仍优先，那是平台注入的可信值）
 - API 响应统一加 `X-Content-Type-Options: nosniff`
 
-**明确不做**：CSP。前端脚本全部内联在单个 `<script>` 里 + 60 处静态 `onclick`，
-`script-src 'unsafe-inline'` 等于不限制，收益远小于白屏风险；XSS 本身已从根上修掉。
+**关于 CSP**：不收紧 `script-src`（脚本全内联在单个 `<script>` 里 + 静态 `onclick`，
+去掉 `'unsafe-inline'` 必然白屏），但其余指令仍有实际价值，因此用 Pages 的 `_headers`
+把 CSP / `X-Content-Type-Options` / `Referrer-Policy` / `Permissions-Policy` / `X-Frame-Options`
+声明到线上静态路径（`server.js` 与 `worker.js` 早就有这套头，Pages 不经它们）。
+配方与 `worker.js` 一致 —— 那两条路径的测试已在同一 CSP 下跑通。
+`probe:live` 现在会实测线上是否真的带上这些头，缺了直接报问题。
 
-- 测试 210 → 219 项（代理 74 → 80、ui 110 → 113）
+- 测试 210 → 220 项（代理 74 → 80、ui 110 → 113、e2e 26 → 27）
 
 ### 3.12.0（体验：改写中锁定 + 分段预告 + 对比图例）
 - **改写进行中锁定输入侧**。此前改写时仍可编辑原文、切换策略/强度、清空、拖入新文件，

@@ -85,6 +85,26 @@ const cross = await fetch(BASE + "/api/rewrite", {
 console.log(`跨站 Origin 探测 -> HTTP ${cross.status}（期望 403）`);
 if (cross.status !== 403) problems.push(`CORS 未拦截跨站请求：${cross.status}`);
 
+// 静态资源的安全响应头：Pages 不经 server.js / worker.js，只能靠 _headers 声明。
+// 缺 CSP 时页面一旦出现注入点就没有第二道防线。
+try {
+  const pageResp = await fetch(BASE + "/");
+  const h = pageResp.headers;
+  const csp = h.get("content-security-policy") || "";
+  const need = [
+    ["Content-Security-Policy", !!csp],
+    ["CSP script-src 限制", /script-src\s+'self'/.test(csp)],
+    ["CSP object-src none", /object-src\s+'none'/.test(csp)],
+    ["X-Content-Type-Options", (h.get("x-content-type-options") || "") === "nosniff"],
+    ["Referrer-Policy", !!h.get("referrer-policy")],
+  ];
+  const missing = need.filter(([, ok]) => !ok).map(([k]) => k);
+  console.log(`\n安全响应头 -> ${missing.length ? "缺少 " + missing.join("、") : "齐全（CSP / nosniff / referrer）"}`);
+  if (missing.length) problems.push("线上静态资源缺少安全响应头：" + missing.join("、"));
+} catch (err) {
+  problems.push("首页探测失败：" + err.message);
+}
+
 console.log("");
 if (problems.length) {
   console.log(`发现 ${problems.length} 个问题：`);
