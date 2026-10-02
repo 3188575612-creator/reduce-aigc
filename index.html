@@ -1227,6 +1227,7 @@ function buildMessages(strategy, text, context) {
 // ==================== Init ====================
 document.addEventListener("DOMContentLoaded", () => {
   migrateLegacyKeys();
+  bindDelegates();
 
   // 策略切换
   document.getElementById("strategyGroup").addEventListener("click", (e) => {
@@ -1468,8 +1469,8 @@ function renderCustomModels() {
           <span style="color:var(--text-tertiary);font-size:10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(m.url)} · ${escapeHtml(m.modelId)} · ${m.auth === "apikey" ? "api-key 头" : "Bearer"}${m.noThinking ? " · 已关思考" : ""}</span>
         </span>
         <span style="display:flex;gap:4px;flex-shrink:0;">
-          <span class="cm-edit" role="button" tabindex="0" aria-label="编辑模型 ${escapeHtml(m.name)}" onclick="editCustomModel('${escapeHtml(m.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();editCustomModel('${escapeHtml(m.id)}');}">✎</span>
-          <span class="cm-del" role="button" tabindex="0" aria-label="删除模型 ${escapeHtml(m.name)}" onclick="delCustomModel('${escapeHtml(m.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();delCustomModel('${escapeHtml(m.id)}');}">✕</span>
+          <span class="cm-edit" role="button" tabindex="0" data-act="edit" data-id="${escapeAttr(m.id)}" aria-label="编辑模型 ${escapeHtml(m.name)}">✎</span>
+          <span class="cm-del" role="button" tabindex="0" data-act="del" data-id="${escapeAttr(m.id)}" aria-label="删除模型 ${escapeHtml(m.name)}">✕</span>
         </span>
       </div>
     `).join("");
@@ -1590,13 +1591,13 @@ function renderKeyList() {
     const radioId = "key_" + k.id;
     return `
       <div class="key-item${active ? " active" : ""}">
-        <input type="radio" class="key-radio" id="${escapeHtml(radioId)}" name="activeKey"
-          ${active ? "checked" : ""} onchange="setActiveKey('${escapeHtml(k.id)}')">
+        <input type="radio" class="key-radio" id="${escapeAttr(radioId)}" name="activeKey"
+          ${active ? "checked" : ""} data-act="pick" data-id="${escapeAttr(k.id)}">
         <div class="key-info">
           <div class="key-name">${escapeHtml(name)}<span style="color:var(--text-secondary);font-size:11px;font-weight:400;margin-left:4px;">${storageNote}</span></div>
           <div class="key-preview">${escapeHtml(preview)}</div>
         </div>
-        <button class="key-delete" title="删除" onclick="deleteKey('${escapeHtml(k.id)}')">🗑</button>
+        <button class="key-delete" title="删除" data-act="del" data-id="${escapeAttr(k.id)}">🗑</button>
       </div>
     `;
   }).join("");
@@ -1962,6 +1963,57 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+// 属性值转义：在 escapeHtml 基础上补单引号（后者本不转义）。
+// 注意：这只对「HTML 属性值」安全。onclick= 里的内容属于脚本上下文，浏览器会先做实体解码
+// 再当 JS 源码执行，&#39; 挡不住 —— 所以任何拼接用户数据的内联事件都是注入面，
+// 动态列表一律走 data-* + 事件委托（见 bindDelegates）。
+function escapeAttr(s) {
+  return escapeHtml(String(s == null ? "" : s)).replace(/'/g, "&#39;");
+}
+
+// 动态列表的事件委托：模型行、Key 行、对比视图里的「改这句」都靠 data-* 传参，
+// 不再把用户数据拼进 onclick/onchange 字符串（那是脚本上下文，等于可执行注入面）
+function bindDelegates() {
+  const act = (el) => (el && el.closest("[data-act],[data-sent]")) || null;
+
+  const modelList = document.getElementById("customModelList");
+  if (modelList) {
+    modelList.addEventListener("click", (e) => {
+      const el = act(e.target);
+      if (!el) return;
+      if (el.dataset.act === "edit") editCustomModel(el.dataset.id);
+      else if (el.dataset.act === "del") delCustomModel(el.dataset.id);
+    });
+    modelList.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;   // role=button 的键盘可达
+      const el = act(e.target);
+      if (!el) return;
+      e.preventDefault();
+      el.click();
+    });
+  }
+
+  const keyList = document.getElementById("keyList");
+  if (keyList) {
+    keyList.addEventListener("click", (e) => {
+      const el = act(e.target);
+      if (el && el.dataset.act === "del") deleteKey(el.dataset.id);
+    });
+    keyList.addEventListener("change", (e) => {
+      const el = act(e.target);
+      if (el && el.dataset.act === "pick") setActiveKey(el.dataset.id);
+    });
+  }
+
+  const compare = document.getElementById("compareArea");
+  if (compare) {
+    compare.addEventListener("click", (e) => {
+      const el = act(e.target);
+      if (el && el.dataset.sent) locateSentence(el.dataset.sent);
+    });
+  }
 }
 
 // ==================== Input draft ====================
@@ -2330,7 +2382,7 @@ function renderCompare() {
 
     if (i < oSentences.length && i < rSentences.length) {
       const [leftHtml, rightHtml] = diffWords(o, r);
-      const pick = `<button class="cmp-pick" onclick="locateSentence(decodeURIComponent('${encodeURIComponent(o)}'))">↖ 改这句</button>`;
+      const pick = `<button class="cmp-pick" data-sent="${escapeAttr(o)}">↖ 改这句</button>`;
       html += `<div class="cmp-row"><div class="cmp-left">${pick}${leftHtml}</div><div class="cmp-right">${rightHtml}</div></div>`;
     } else if (i < oSentences.length) {
       html += `<div class="cmp-row"><div class="cmp-left" style="background:var(--diff-del-bg);">${escapeHtml(o)}</div><div class="cmp-right" style="color:var(--text-tertiary);">（已删除）</div></div>`;

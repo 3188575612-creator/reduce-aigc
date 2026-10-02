@@ -2,7 +2,7 @@
 // 运行环境需提供 Web 标准 API：fetch、Request、Response、URL、AbortController。
 // 放在 functions/_lib/ 下作为源码模块；Pages 的路由面由仓库根的 _routes.json 限定在 /api/*。
 
-export const VERSION = "3.12.0";
+export const VERSION = "3.13.0";
 
 // 本服务不内置任何模型：端点、模型 ID、密钥全部由用户在自己的浏览器里配置后随请求带来。
 // 下面这份是按上游域名匹配的「参数适配」，不是模型清单 —— 用户填官方地址时会自动套用已知约束，
@@ -31,6 +31,7 @@ export const UPSTREAM_PROFILES = [
 ];
 
 const DEFAULT_TIMEOUT_MS = 25000;
+const DEFAULT_STREAM_IDLE_MS = 45000;
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_MESSAGES = 40;
 const MAX_TOTAL_CHARS = 120000;
@@ -39,8 +40,62 @@ const DEFAULT_RATE_LIMIT = 30;
 function json(body, status = 200, extra = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...extra },
+    headers: { "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff", ...extra },
   });
+}
+
+// 流式透传必须带空闲超时：裸透传 resp.body 时，fetch 的超时只管到「响应头到达」为止。
+// 上游（或中间网关）挂住不关闭连接时，连接会被一直占用 —— Workers 有平台超时兜底，
+// 自建 Node 没有，这里加一层「多久没有新数据就断开」的保护。
+export function withIdleTimeout(body, idleMs) {
+  if (!body || typeof TransformStream === "undefined") return body;
+  const reader = body.getReader();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  let timer = null;
+  let done = false;
+
+  const finish = (fn, arg) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    reader.cancel().catch(() => {});
+    fn(arg).catch(() => {});
+  };
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => finish((p) => writer.abort(p), new Error("上游流式响应长时间无数据")), idleMs);
+  };
+
+  (async () => {
+    try {
+      arm();
+      for (;;) {
+        const { value, done: ended } = await reader.read();
+        if (ended) break;
+        arm();
+        await writer.write(value);
+      }
+      finish((p) => writer.close(), undefined);
+    } catch (err) {
+      finish((p) => writer.abort(p), err);
+    }
+  })();
+
+  return readable;
+}
+
+// 限流用的客户端 IP。CF-Connecting-IP 由 Cloudflare 覆盖注入，可信；
+// X-Real-IP / X-Forwarded-For 在自建部署里是客户端可伪造的 —— 所以必须校验格式，
+// 否则伪造的随机字符串每次都开一个新桶，限流等于没有。
+// 根治要靠平台注入不可伪造的连接地址（Workers 未暴露 socket），这里做到「伪造也无法绕过」的上限。
+export function clientIp(request) {
+  const raw = (request.headers.get("CF-Connecting-IP")
+    || request.headers.get("X-Real-IP")
+    || (request.headers.get("X-Forwarded-For") || "").split(",")[0].trim()
+    || "").trim();
+  if (/^[0-9a-f.:]{3,45}$/i.test(raw)) return raw.toLowerCase();
+  return "local";
 }
 
 function isLoopbackHost(host) {
@@ -320,10 +375,7 @@ export async function handleRewrite(request, env = {}) {
     return json({ error: "仅支持 POST" }, 405, cors);
   }
 
-  const ip = request.headers.get("CF-Connecting-IP")
-    || request.headers.get("X-Real-IP")
-    || (request.headers.get("X-Forwarded-For") || "").split(",")[0].trim()
-    || "local";
+  const ip = clientIp(request);
   const limit = clampNumber(env.RATE_LIMIT_PER_MIN, 1, 100000, DEFAULT_RATE_LIMIT);
   const rl = checkRateLimit(ip, limit);
   if (!rl.ok) {
@@ -405,11 +457,13 @@ export async function handleRewrite(request, env = {}) {
       }
 
       if (stream && resp.ok && resp.body) {
-        return new Response(resp.body, {
+        const idleMs = clampNumber(env.STREAM_IDLE_TIMEOUT_MS, 5000, 300000, DEFAULT_STREAM_IDLE_MS);
+        return new Response(withIdleTimeout(resp.body, idleMs), {
           status: 200,
           headers: {
             "Content-Type": resp.headers.get("Content-Type") || "text/event-stream",
             "Cache-Control": "no-cache",
+            "X-Content-Type-Options": "nosniff",
             ...cors,
           },
         });
@@ -432,7 +486,7 @@ export async function handleRewrite(request, env = {}) {
 
     return new Response(text, {
       status: resp.status,
-      headers: { "Content-Type": "application/json; charset=utf-8", ...cors },
+      headers: { "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff", ...cors },
     });
   } catch (err) {
     const msg = err && err.name === "AbortError" ? `请求超时(${timeoutMs / 1000}s)` : (err && err.message) || "未知错误";

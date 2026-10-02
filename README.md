@@ -98,15 +98,15 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 
 | 命令 | 覆盖范围 |
 |---|---|
-| `npm test` | 代理层回归自测：本地 mock 上游，74 项断言（鉴权、超时、重试、限流、CORS、参数夹取、extraBody、SSRF、HTML 清洗、版本一致性） |
+| `npm test` | 代理层回归自测：本地 mock 上游，80 项断言（鉴权、超时、重试、限流、CORS、参数夹取、extraBody、SSRF、HTML 清洗、流式空闲超时、限流 IP 加固、版本一致性） |
 | `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路，26 项（含 SSE 流式透传、model 透传、静态路由、限流、CORS、上游 HTML 清洗、_routes.json / _redirects 覆盖） |
-| `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、AI 痕迹自查（runDetect）、导出路径（MD / Word）、空态按钮禁用、改写中输入锁定、超量分段提示、对比图例、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 110 项，并抓运行时异常 |
+| `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、AI 痕迹自查（runDetect）、导出路径（MD / Word）、空态按钮禁用、改写中输入锁定、超量分段提示、对比图例、**XSS 注入面**（恶意 id 走真实渲染路径）、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 113 项，并抓运行时异常 |
 | `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
 | `npm run gen:redirects` | 按 git 跟踪清单重新生成 `_redirects`（新增根目录文件后必跑，否则 e2e 会失败） |
 | `npm run check:docs` | 校验 README 标称的条数 / 版本号 / 公告约定与实际一致（CI 会跑，防止文档漂移） |
 | `npm run test:all` | 依次跑前三项（不含线上探测） |
 
-前三项都不需要真实 API Key，合计离线 **210 项**。
+前三项都不需要真实 API Key，合计离线 **219 项**。
 
 > 本机若禁止启动子进程（例如受限沙箱），`test:e2e` 里的 `_redirects` 一致性那项会显示 **SKIP** 并说明原因 ——
 > 这是环境限制、不等于通过，最终由 CI 或普通终端复跑确认。
@@ -247,6 +247,41 @@ Esc 可关闭任意弹窗；`Ctrl/⌘+Enter` 开始改写；深浅色跟随系�
 - 无障碍：`:focus-visible` 焦点环、`prefers-reduced-motion` 降级、滚动条与对比度统一处理
 
 ## 变更记录
+
+### 3.13.0（安全：修掉一个真实可利用的存储型 XSS + 代理层两处加固）
+
+**P0 存储型 XSS（已确认可利用，已修）**
+
+`escapeHtml()` 走 `textContent → innerHTML` 序列化，**不转义单引号**；`encodeURIComponent()` 同样不编码
+单引号。而项目有 5 处把用户数据拼进 `onclick="fn('${...}')"` —— 内联事件属于**脚本上下文**，
+浏览器会先做 HTML 实体解码再当 JS 源码执行，所以 `&#39;` 这类转义在这里**无效**。
+实测构造 `id = m1');window.__XSS=1;//` 经真实渲染路径后，点一下编辑/删除就会执行注入代码。
+
+两条可触发路径：
+1. **导入他人分享的配置文件**（`importConfig`）—— 配置文件里的模型 id 即可注入
+2. **粘贴来源不明的论文文本** —— 句子里只要有英文撇号（`don't`），对比视图的「改这句」按钮即被截断逃逸
+
+而本工具把 API Key 明文存在 localStorage，一旦执行即可外传。已改为：
+- 新增 `escapeAttr()`（属性值转义，补单引号）
+- 5 处动态列表（模型行、Key 行、对比视图）改 **`data-*` + 事件委托**（`bindDelegates`），
+  用户数据不再进入任何脚本上下文；键盘可达性（Enter/Space）保留
+- 防回归：静态断言扫源码禁止「内联事件 + 模板插值」；行为断言让恶意 id 走真实渲染路径，
+  断言点击只触发预期函数、注入标记未置位
+
+**P1 代理层**
+
+- **流式响应补空闲超时**：此前 `stream: true` 直接透传 `resp.body`，而 fetch 的超时只管到
+  「响应头到达」为止 —— 上游挂住不关闭连接时会一直占用连接（Workers 有平台超时兜底，自建 Node 没有）。
+  新增 `withIdleTimeout()`：超过 `STREAM_IDLE_TIMEOUT_MS`（默认 45s）没有新数据就断开并 abort 上游
+- **限流 IP 加固**：`X-Forwarded-For` / `X-Real-IP` 在自建部署里可被伪造，
+  随机字符串每次会开出新桶 → 限流形同虚设。现在做格式校验，非法值统一归到同一个桶
+  （`CF-Connecting-IP` 仍优先，那是平台注入的可信值）
+- API 响应统一加 `X-Content-Type-Options: nosniff`
+
+**明确不做**：CSP。前端脚本全部内联在单个 `<script>` 里 + 60 处静态 `onclick`，
+`script-src 'unsafe-inline'` 等于不限制，收益远小于白屏风险；XSS 本身已从根上修掉。
+
+- 测试 210 → 219 项（代理 74 → 80、ui 110 → 113）
 
 ### 3.12.0（体验：改写中锁定 + 分段预告 + 对比图例）
 - **改写进行中锁定输入侧**。此前改写时仍可编辑原文、切换策略/强度、清空、拖入新文件，

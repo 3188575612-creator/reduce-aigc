@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.12", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.12\.\d+/.test(v)],
+    ["代理健康检查显示 v3.13", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.13\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -1243,6 +1243,57 @@ try {
       return document.getElementById("historyPanelList").textContent;
     })()`,
       (v) => /还没有改写记录/.test(v) && /自动保存/.test(v)],
+
+    // ---- XSS 防护：动态列表传参不得走脚本上下文（v3.13.0）----
+    ["恶意 id 进模型列表：点击只触发预期动作，注入代码不执行", `(() => {
+      window.__XSS = 0;
+      const evil = "m1');window.__XSS=1;//";
+      const s = loadSettings();
+      s.customModels = [{ id: evil, name: "恶意模型", url: "https://x.example.com/v1", modelId: "m", auth: "bearer" }];
+      s.model = evil;
+      saveSettings(s);
+      renderCustomModels();
+      const del = document.querySelector('#customModelList [data-act="del"]');
+      const edit = document.querySelector('#customModelList [data-act="edit"]');
+      const surface = { noInline: !del.getAttribute("onclick"), idIntact: del.dataset.id === evil };
+      del.click();
+      const afterClick = { injected: window.__XSS === 1, gone: (loadSettings().customModels || []).length === 0 };
+      // 键盘路径同样不能注入（模型已被上面删掉，先放回去）
+      s.customModels = [{ id: evil, name: "恶意模型", url: "https://x.example.com/v1", modelId: "m", auth: "bearer" }];
+      s.model = evil;
+      saveSettings(s);
+      renderCustomModels();
+      document.querySelector('#customModelList [data-act="edit"]')
+        .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      return JSON.stringify({ surface, afterClick, editViaKeyboard: document.getElementById("cmName").value === "恶意模型", injected2: window.__XSS === 1 });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.surface.noInline && o.surface.idIntact && !o.afterClick.injected && o.afterClick.gone && o.editViaKeyboard && !o.injected2; }],
+    ["恶意 Key id 同样不产生内联脚本", `(() => {
+      window.__XSSK = 0;
+      const evil = "k1');window.__XSSK=1;//";
+      saveKeys([{ id: evil, name: "恶意Key", key: "sk-evil-1234" }], true);
+      const s = loadSettings(); s.activeKeyId = evil; saveSettings(s);
+      renderKeyList();
+      const pick = document.querySelector('#keyList [data-act="pick"]');
+      const del = document.querySelector('#keyList [data-act="del"]');
+      const surface = { noOnchange: !pick.getAttribute("onchange"), noOnclick: !del.getAttribute("onclick"), idIntact: del.dataset.id === evil };
+      pick.click();
+      return JSON.stringify({ surface, selected: (getActiveKey() || {}).id === evil, injected: window.__XSSK === 1 });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.surface.noOnchange && o.surface.noOnclick && o.surface.idIntact && o.selected && !o.injected; }],
+    ["对比视图「改这句」经 data-sent 传参，含英文撇号的句子也能定位", `(() => {
+      const sentence = "第一句原文内容。";
+      setInputText(sentence);
+      originalText = sentence;
+      setRewritten("第一句 don't 改写后的内容。");
+      renderCompare();
+      const pick = document.querySelector("#compareArea .cmp-pick");
+      const ok = { exists: !!pick, noInline: pick ? !pick.getAttribute("onclick") : false, sent: pick ? pick.dataset.sent : null };
+      pick.click();
+      const ta = document.getElementById("inputText");
+      return JSON.stringify({ ok, selected: ta.value.slice(ta.selectionStart, ta.selectionEnd) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.ok.exists && o.ok.noInline && o.ok.sent === "第一句原文内容。" && o.selected === "第一句原文内容。"; }],
   ];
 
   for (const [name, expr, check] of probes) {

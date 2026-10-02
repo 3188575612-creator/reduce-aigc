@@ -6,7 +6,7 @@ import fs from "node:fs";
 import {
   handleRewrite, VERSION, UPSTREAM_PROFILES,
   resolveTarget, applyModelLimits, buildRequestBody, mergeExtraBody, cleanUpstreamText,
-  isPrivateHost,
+  isPrivateHost, clientIp, withIdleTimeout,
 } from "../functions/_lib/rewrite-handler.mjs";
 
 // 注意：不能 import MODEL_ENDPOINTS 来判断它是否被删（缺失的具名导出会让模块链接失败），
@@ -361,7 +361,34 @@ check("前端代码里也不该再有预设模型 id",
     fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
   ), "index.html 仍引用预设模型 id");
 
-check("版本号已升到 3.12.x", VERSION.startsWith("3.12."), VERSION);
+check("版本号已升到 3.13.x", VERSION.startsWith("3.13."), VERSION);
+
+// ---- 流式空闲超时 + 限流 IP 加固（v3.13.0）----
+const mkReq = (headers) => ({ headers: { get: (k) => headers[k] ?? null } });
+check("限流 IP 优先用平台注入的 CF 头",
+  clientIp(mkReq({ "CF-Connecting-IP": "1.2.3.4", "X-Forwarded-For": "9.9.9.9" })) === "1.2.3.4",
+  clientIp(mkReq({ "CF-Connecting-IP": "1.2.3.4", "X-Forwarded-For": "9.9.9.9" })));
+check("伪造的非法 IP 头归一到同一个桶（否则限流可被随机值绕过）",
+  clientIp(mkReq({ "X-Forwarded-For": "not-an-ip" })) === "local"
+  && clientIp(mkReq({ "X-Forwarded-For": "../../etc/passwd" })) === "local"
+  && clientIp(mkReq({})) === "local",
+  "非法头未归一");
+check("XFF 取第一段且 IPv6 形态可用",
+  clientIp(mkReq({ "X-Forwarded-For": "5.6.7.8, 10.0.0.1" })) === "5.6.7.8"
+  && clientIp(mkReq({ "X-Real-IP": "2001:DB8::1" })) === "2001:db8::1",
+  "取值不对");
+check("withIdleTimeout 已导出且流式响应带 nosniff",
+  typeof withIdleTimeout === "function" && /withIdleTimeout\(resp\.body/.test(handlerSrc)
+  && /"X-Content-Type-Options": "nosniff"/.test(handlerSrc),
+  "缺少空闲超时或 nosniff");
+
+// ---- 前端注入面：动态列表不得再把用户数据拼进内联事件（v3.13.0）----
+const frontSrc = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const inlineScriptCtx = frontSrc.match(/on(?:click|change|keydown|error|load)="[a-zA-Z_$][\w$]*\('\$\{/g) || [];
+check("前端不再有「内联事件 + 模板插值」的脚本上下文拼接",
+  inlineScriptCtx.length === 0, `仍有 ${inlineScriptCtx.length} 处：${inlineScriptCtx.slice(0, 3).join(" ")}`);
+check("动态列表改用 data-* + 事件委托",
+  /data-act="edit"/.test(frontSrc) && /function bindDelegates/.test(frontSrc), "未见委托实现");
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 check("package.json 与代理版本一致（避免 health 报的版本对不上）",
