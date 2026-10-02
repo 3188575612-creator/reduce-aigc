@@ -63,7 +63,9 @@
     --glass-bg-strong: rgba(238, 244, 255, 0.56);
     --glass-stroke: rgba(255, 255, 255, 0.42);
     /* 主界面卡片的描边：浅色下白描边会消失在近白背景里，改用淡灰才看得出边界 */
-    --card-glass-stroke: rgba(17, 20, 29, 0.1);
+    --card-glass-stroke: rgba(17, 20, 29, 0.13);
+    /* 主界面卡片底：磨砂而非透明。工作台要长时间用，透度太高会显脏、光晕透进内容区干扰阅读 */
+    --card-glass-bg: rgba(255, 255, 255, 0.82);
     --glass-hairline: rgba(17, 20, 29, 0.06);
     --glass-blur: 22px;
     --glass-sat: 190%;
@@ -105,9 +107,9 @@
     --diff-del-fg: #9c2b28;
 
     /* 背景光晕：让玻璃有东西可虚化，幅度刻意压得很低 */
-    --glow-1: rgba(99, 102, 241, 0.2);
-    --glow-2: rgba(56, 189, 248, 0.16);
-    --glow-3: rgba(168, 85, 247, 0.12);
+    --glow-1: rgba(99, 102, 241, 0.16);
+    --glow-2: rgba(56, 189, 248, 0.13);
+    --glow-3: rgba(168, 85, 247, 0.1);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -146,6 +148,7 @@
       --glass-bg-strong: rgba(30, 36, 48, 0.6);
       --glass-stroke: rgba(255, 255, 255, 0.1);
       --card-glass-stroke: rgba(255, 255, 255, 0.12);
+      --card-glass-bg: rgba(34, 38, 47, 0.88);
       --glass-hairline: rgba(255, 255, 255, 0.09);
       --glass-lip-light: rgba(255, 255, 255, 0.34);
       --glass-lip-soft: rgba(255, 255, 255, 0.12);
@@ -328,7 +331,7 @@
   /* 主界面卡片也走玻璃：与二级界面同一配方。
      内容区（输入框/结果区）保持实底 —— 玻璃负责观感，实底负责可读性。 */
   .card.panel {
-    background: var(--glass-bg);
+    background: var(--card-glass-bg);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     border-color: var(--card-glass-stroke);
@@ -345,7 +348,7 @@
     position: absolute; inset: 0; border-radius: inherit;
     background-image: var(--glass-grain);
     background-size: 140px 140px;
-    opacity: .16;
+    opacity: .1;
     mix-blend-mode: overlay;
     pointer-events: none;
   }
@@ -408,19 +411,22 @@
     flex: 1 1 auto;
     /* 视口越矮内容区越矮：保证 1366x768 这类笔记本上整页不超屏、主操作不被推走 */
     min-height: clamp(170px, 25vh, 240px);
-    padding: 16px 18px;
-    border: 1px solid var(--border);
+    padding: 14px 16px;
+    /* 内容区不再是「卡片里的白板」，而是直接融入卡片 —— 消除三层套框。
+       没有边框不代表没有边界：聚焦时再给提示即可。 */
+    border: 1px solid transparent;
     border-radius: var(--r-md);
-    background: var(--surface);
+    background: var(--field-bg);
     font-size: 14px; font-family: inherit; line-height: 1.85;
     color: var(--text);
     outline: none; resize: none; overflow-y: auto;
     transition: border-color .18s ease, box-shadow .18s ease;
   }
   .input-area:focus, .output-area:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
   }
+  .input-area:hover, .output-area:hover { border-color: var(--border); }
   /* 改写进行中：输入区锁定为只读，给一点可感知但克制的视觉反馈 */
   .input-area[readonly] { background: var(--field-bg); color: var(--text-secondary); }
   .output-area, .compare-area { white-space: pre-wrap; word-break: break-word; }

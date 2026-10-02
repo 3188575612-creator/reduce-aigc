@@ -1393,25 +1393,31 @@ try {
       (v) => { const o = JSON.parse(v); return o.gradients >= 3 && /blur/.test(o.blur); }],
 
     // ---- 主界面玻璃（v3.16.0）----
-    ["主界面卡片是玻璃，且内容区维持实底（观感与可读性分工）", `(() => {
+    ["主界面卡片是磨砂玻璃且内容区有底（合成后不透底，可读性有保障）", `(() => {
       const card = document.querySelector(".card.panel");
       const cs = getComputedStyle(card);
       const area = getComputedStyle(document.getElementById("inputText"));
       const out = getComputedStyle(document.getElementById("outputArea"));
       const grain = getComputedStyle(card, "::after").backgroundImage || "";
       const inner = getComputedStyle(document.querySelector(".card.panel .panel-header"));
+      const alpha = (c) => { const m = c.match(/[\\d.]+/g); return m && m.length > 3 ? parseFloat(m[3]) : 1; };
+      const aCard = alpha(cs.backgroundColor);
+      const aArea = alpha(area.backgroundColor);
+      // 内容区叠在卡片上后的有效不透明度：三层（页面/卡片/内容区）合成
+      const composed = 1 - (1 - aCard) * (1 - aArea);
       return JSON.stringify({
         玻璃: /blur/.test(cs.backdropFilter || ""),
-        描边非白: cs.borderTopColor,
-        内容区实底: area.backgroundColor,
-        输出区实底: out.backgroundColor,
+        卡片透度: aCard,
+        内容区透度: aArea,
+        合成不透明度: Math.round(composed * 100) / 100,
         有颗粒: /svg/.test(grain),
         内容在颗粒之上: inner.zIndex
       });
     })()`,
       (v) => { const o = JSON.parse(v);
-        const opaque = (c) => { const m = c.match(/[\d.]+/g); return m && (m.length < 4 || parseFloat(m[3]) > 0.85); };
-        return o.玻璃 && opaque(o.内容区实底) && opaque(o.输出区实底) && o.有颗粒 && o.内容在颗粒之上 === "1"; }],
+        // 磨砂而非透明：卡片透度不超过 0.9；合成后遮蔽至少 80%（实测对比度断言兜住可读性）
+        return o.玻璃 && o.卡片透度 > 0.7 && o.卡片透度 <= 0.9 && o.内容区透度 > 0.01
+          && o.合成不透明度 >= 0.8 && o.有颗粒 && o.内容在颗粒之上 === "1"; }],
     ["系统要求减少透明度时玻璃退化为实底（性能兜底）", `(() => {
       const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("\\n");
       const block = (css.match(/@media\\s*\\(prefers-reduced-transparency:\\s*reduce\\)\\s*\\{[\\s\\S]*?\\n  \\}/) || [""])[0];
