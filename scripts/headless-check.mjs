@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.14", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.14\.\d+/.test(v)],
+    ["代理健康检查显示 v3.15", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.15\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -319,7 +319,7 @@ try {
         glass: cs.getPropertyValue("--glass-blur").trim()
       });
     })()`,
-      (v) => { const o = JSON.parse(v); return o.rLg === "16px" && o.hasShadow1 && o.glass === "30px"; }],
+      (v) => { const o = JSON.parse(v); return o.rLg === "16px" && o.hasShadow1 && o.glass === "22px"; }],
     ["二级界面：设置弹窗是真的玻璃（backdrop-filter + 大圆角）", `(() => {
       openSettings();
       const cs = getComputedStyle(document.querySelector(".modal"));
@@ -1358,6 +1358,39 @@ try {
       return JSON.stringify({ ph: ta.placeholder, lines: ta.placeholder.split("\\n").length, title: (ta.title || "").slice(0, 12) });
     })()`,
       (v) => { const o = JSON.parse(v); return o.lines === 1 && !/建议/.test(o.ph) && /建议/.test(o.title); }],
+
+    // ---- 玻璃质感配方（v3.15.0）：防「改回廉价蒙膜」----
+    ["玻璃配方：低白叠加 + 颗粒 + 棱边 + 内容实底（四件套齐全）", `(() => {
+      const cs = getComputedStyle(document.documentElement);
+      const v = (n) => cs.getPropertyValue(n).trim();
+      const panel = document.querySelector(".modal");   // 伪元素挂在面板上，不是遮罩上
+      const white = v("--glass-bg").match(/[\\d.]+/g) || [];
+      const noise = getComputedStyle(panel, "::after").backgroundImage || "";
+      const lip = getComputedStyle(panel, "::before").boxShadow || "";
+      const body = getComputedStyle(document.querySelector(".modal-body")).backgroundColor;
+      return JSON.stringify({
+        whiteAlpha: white[3],
+        grainToken: /feTurbulence/.test(v("--glass-grain")),
+        noiseLayer: /data:image\\/svg/.test(noise),
+        lipRing: /inset/.test(lip),
+        contentSolid: /rgba/.test(body),
+        blur: v("--glass-blur"),
+        sat: v("--glass-sat"),
+        aura: /rgba/.test(v("--glass-aura-1"))
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        return parseFloat(o.whiteAlpha) <= 0.45 && o.grainToken && o.noiseLayer && o.lipRing
+          && o.contentSolid && o.blur === "22px" && /190%/.test(o.sat) && o.aura; }],
+    ["面板背后的环境柔光存在（玻璃要有色彩可透，否则必然发塑料）", `(() => {
+      openSettings();
+      const el = getComputedStyle(document.getElementById("modalOverlay"), "::before");
+      const bg = el.backgroundImage || "";
+      const res = { gradients: (bg.match(/radial-gradient/g) || []).length, blur: el.filter };
+      closeSettings({ target: document.getElementById("modalOverlay") });
+      return JSON.stringify(res);
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.gradients >= 3 && /blur/.test(o.blur); }],
   ];
 
   for (const [name, expr, check] of probes) {

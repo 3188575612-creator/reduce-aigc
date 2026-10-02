@@ -361,7 +361,7 @@ check("前端代码里也不该再有预设模型 id",
     fs.readFileSync(new URL("../index.html", import.meta.url), "utf8")
   ), "index.html 仍引用预设模型 id");
 
-check("版本号已升到 3.14.x", VERSION.startsWith("3.14."), VERSION);
+check("版本号已升到 3.15.x", VERSION.startsWith("3.15."), VERSION);
 
 // ---- 流式空闲超时 + 限流 IP 加固（v3.13.0）----
 const mkReq = (headers) => ({ headers: { get: (k) => headers[k] ?? null } });
