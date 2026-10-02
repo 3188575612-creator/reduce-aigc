@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.13", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.13\.\d+/.test(v)],
+    ["代理健康检查显示 v3.14", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.14\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -1294,6 +1294,70 @@ try {
       return JSON.stringify({ ok, selected: ta.value.slice(ta.selectionStart, ta.selectionEnd) });
     })()`,
       (v) => { const o = JSON.parse(v); return o.ok.exists && o.ok.noInline && o.ok.sent === "第一句原文内容。" && o.selected === "第一句原文内容。"; }],
+
+    // ---- 视觉与直觉（v3.14.0）----
+    ["主操作栏常驻可见：sticky 底栏 + 主区为它留出位置", `(() => {
+      const bar = document.querySelector(".action-bar");
+      const cs = getComputedStyle(bar);
+      const mainPad = parseFloat(getComputedStyle(document.querySelector(".main")).paddingBottom);
+      const btn = document.getElementById("rewriteBtn").getBoundingClientRect();
+      return JSON.stringify({
+        position: cs.position, bottom: cs.bottom,
+        mainPad: Math.round(mainPad),
+        有玻璃底: cs.backgroundColor !== "rgba(0, 0, 0, 0)",
+        按钮在视口内: btn.bottom <= window.innerHeight && btn.top >= 0
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        return o.position === "sticky" && parseInt(o.bottom, 10) === 0 && o.mainPad >= 100 && o.有玻璃底 && o.按钮在视口内; }],
+    ["字号体系已收敛（不再有 11.5 / 12.5 这类凑数档）", `(() => {
+      const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("\\n");
+      const odd = css.match(/font-size:\\s*1[12]\\.5px/g) || [];
+      return JSON.stringify({ oddCount: odd.length, samples: odd.slice(0, 3) });
+    })()`,
+      (v) => JSON.parse(v).oddCount === 0],
+    ["次级按钮高度统一为 32px", `(() => {
+      const el = document.querySelector(".result-action:not([disabled])") || document.querySelector(".panel-tools .btn-sm");
+      const probe = document.createElement("button");
+      probe.className = "btn btn-ghost btn-sm";
+      document.body.appendChild(probe);
+      const h = Math.round(probe.getBoundingClientRect().height);
+      probe.remove();
+      return JSON.stringify({ h });
+    })()`,
+      (v) => JSON.parse(v).h === 32],
+    ["结果区空态给出下一步引导（不是一行灰字）", `(() => {
+      setRewritten("");                       // 先回到空态，否则前面用例的结果还留在栏里
+      clearAll();
+      const empty = document.querySelector("#outputArea .empty-state");
+      if (!empty) return JSON.stringify({ exists: false });
+      return JSON.stringify({
+        exists: true,
+        hasMark: !!empty.querySelector(".empty-mark"),
+        hasTitle: !!empty.querySelector(".empty-title"),
+        hasSub: /开始改写|拖入/.test(empty.querySelector(".empty-sub").textContent)
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.exists && o.hasMark && o.hasTitle && o.hasSub; }],
+    ["策略说明是白话且悬停即预览", `(() => {
+      const desc = document.getElementById("strategyDesc");
+      const current = desc.textContent;
+      const other = [...document.querySelectorAll("#strategyGroup .strategy-btn")].find(b => b.dataset.strategy !== currentStrategy);
+      other.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      const hovered = desc.textContent;
+      document.getElementById("strategyGroup").dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
+      const restored = desc.textContent;
+      return JSON.stringify({ current, hovered, restored });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        const jargon = /分号长段|过渡多样|语义推进|段落不均/;
+        return o.hovered && o.hovered !== o.current && o.restored === o.current
+          && !jargon.test(o.current) && !jargon.test(o.hovered); }],
+    ["输入区占位只留主提示（建议改放 title，不占三行视觉空间）", `(() => {
+      const ta = document.getElementById("inputText");
+      return JSON.stringify({ ph: ta.placeholder, lines: ta.placeholder.split("\\n").length, title: (ta.title || "").slice(0, 12) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.lines === 1 && !/建议/.test(o.ph) && /建议/.test(o.title); }],
   ];
 
   for (const [name, expr, check] of probes) {

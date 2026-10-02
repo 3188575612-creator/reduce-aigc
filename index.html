@@ -232,12 +232,14 @@
     font-size: 12px; color: var(--text-secondary);
     padding: 0 10px; white-space: nowrap;
   }
+  /* 代理版本是给排查用的技术信息，不该和「缺配置」这种需要用户处理的事同权重 */
+  #proxyStatus { color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
   .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
   .status-dot.ok { background: var(--success); }
   .status-dot.err { background: var(--danger); }
-  .status-fix { margin-left: 4px; padding: 1px 8px; font-size: 11px; height: auto; }
+  .status-fix { margin-left: 4px; padding: 1px 8px; font-size: 11px; height: auto; min-height: 0; }
   .btn-settings {
-    width: 34px; height: 34px; border-radius: var(--r-md);
+    width: 32px; height: 32px; border-radius: var(--r-md);
     border: 1px solid transparent; background: transparent;
     display: flex; align-items: center; justify-content: center;
     font-size: 16px; color: var(--text-secondary); cursor: pointer;
@@ -263,7 +265,7 @@
      主区
      ============================================================ */
   .main {
-    max-width: 1200px; margin: 0 auto; padding: 24px 28px 40px;
+    max-width: 1200px; margin: 0 auto; padding: 24px 28px 116px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: auto 1fr auto;
@@ -303,7 +305,7 @@
   .strategy-btn {
     padding: 7px 15px; border: 1px solid transparent; border-radius: var(--r-full);
     background: transparent; cursor: pointer;
-    font-size: 12.5px; font-weight: 500; font-family: inherit;
+    font-size: 13px; font-weight: 500; font-family: inherit;
     color: var(--text-secondary); white-space: nowrap;
     transition: background .16s ease, color .16s ease, box-shadow .16s ease;
   }
@@ -324,7 +326,7 @@
     display: flex; align-items: center; gap: 10px;
     height: 36px; margin-bottom: 12px;
   }
-  .tools-note { font-size: 11.5px; color: var(--text-tertiary); }
+  .tools-note { font-size: 11px; color: var(--text-tertiary); }
   .card.panel.drop-active {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
@@ -332,7 +334,9 @@
 
   .input-area, .output-area, .compare-area {
     width: 100%;
-    flex: 1 1 auto; min-height: 240px;
+    flex: 1 1 auto;
+    /* 视口越矮内容区越矮：保证 1366x768 这类笔记本上整页不超屏、主操作不被推走 */
+    min-height: clamp(170px, 25vh, 240px);
     padding: 16px 18px;
     border: 1px solid var(--border);
     border-radius: var(--r-md);
@@ -350,6 +354,18 @@
   .input-area[readonly] { background: var(--field-bg); color: var(--text-secondary); }
   .output-area, .compare-area { white-space: pre-wrap; word-break: break-word; }
   .output-placeholder { color: var(--text-tertiary); font-style: italic; }
+  /* 空态：给下一步而不只是占位。原稿只有一行灰斜体，用户不知道能做什么 */
+  .empty-state {
+    height: 100%; min-height: inherit;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; padding: 24px; text-align: center;
+  }
+  .empty-mark {
+    font-size: 26px; line-height: 1; color: var(--border);
+    user-select: none;
+  }
+  .empty-title { font-size: 14px; color: var(--text-secondary); }
+  .empty-sub { font-size: 12px; color: var(--text-tertiary); line-height: 1.7; max-width: 26em; text-wrap: balance; }
 
   /* 结果视图切换：分段控件 */
   .view-tabs {
@@ -385,7 +401,7 @@
   .cmp-right { flex: 1; min-width: 0; padding-left: 12px; color: var(--text); }
   .cmp-add { background: var(--diff-add-bg); color: var(--diff-add-fg); padding: 1px 3px; border-radius: 3px; }
   .cmp-remove { background: var(--diff-del-bg); color: var(--diff-del-fg); text-decoration: line-through; padding: 1px 3px; border-radius: 3px; }
-  .cmp-legend { font-size: 11.5px; color: var(--text-tertiary); margin-bottom: 10px; line-height: 1.8; }
+  .cmp-legend { font-size: 11px; color: var(--text-tertiary); margin-bottom: 10px; line-height: 1.8; }
   .cmp-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; font-weight: 600; }
   .cmp-pick {
     display: block; margin-bottom: 4px; padding: 1px 8px;
@@ -442,12 +458,27 @@
   .btn-primary:active:not(:disabled) { transform: translateY(0); }
   .btn-ghost { color: var(--text-secondary); border-color: var(--card-border); }
   .btn-ghost:hover:not(:disabled) { background: var(--field-bg); color: var(--text); border-color: var(--border); }
-  .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: var(--r-sm); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: var(--r-sm);
+    min-height: 32px; display: inline-flex; align-items: center; justify-content: center; }
 
   .action-bar {
     grid-column: 1 / -1;
     display: flex; flex-direction: column; align-items: center; gap: 12px;
     padding-bottom: 8px;
+    /* 主操作必须始终可见。实测 1366x768（最主流笔记本）下整页比视口高 105px，
+       「开始改写」被推到屏幕外、要滚动才看得到 —— 这是最违反直觉的一点。
+       粘在视口底部，滚动时跟随。 */
+    position: sticky; bottom: 0; z-index: 60;
+    padding: 10px 18px;
+    margin: 0 -6px;
+    border-radius: var(--r-lg);
+    background: var(--glass-bg-strong);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 0 -1px 0 var(--glass-hairline), var(--shadow-2);
+  }
+  @supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+    .action-bar { background: var(--card); }
   }
   .action-buttons { display: flex; gap: 10px; align-items: center; }
   .action-tip { font-size: 11px; color: var(--text-tertiary); }
@@ -516,7 +547,7 @@
   }
   .modal-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
   .modal-close {
-    width: 30px; height: 30px; border-radius: var(--r-sm);
+    width: 32px; height: 32px; border-radius: var(--r-sm);
     border: none; background: var(--field-bg);
     font-size: 15px; line-height: 1; color: var(--text-secondary);
     cursor: pointer; transition: background .16s ease, color .16s ease;
@@ -528,7 +559,7 @@
     padding: 18px 24px 24px; overflow-y: auto;
   }
   .section-title {
-    font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--text-tertiary);
     margin: 18px 0 10px;
   }
@@ -598,7 +629,7 @@
     border: 1px solid var(--glass-hairline);
   }
   .history-item-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
-  .history-item-time { font-size: 11.5px; color: var(--text-secondary); }
+  .history-item-time { font-size: 11px; color: var(--text-secondary); }
   .history-item-tag {
     font-size: 11px; color: var(--accent);
     background: var(--accent-light); padding: 2px 8px; border-radius: var(--r-full);
@@ -631,7 +662,7 @@
     transition: background .16s ease, color .16s ease;
   }
   .key-delete:hover { background: var(--danger-light); color: var(--danger-text); }
-  .key-empty { padding: 22px; text-align: center; font-size: 12.5px; color: var(--text-tertiary); }
+  .key-empty { padding: 22px; text-align: center; font-size: 13px; color: var(--text-tertiary); }
 
   /* ---- 表单 ---- */
   .add-key-form { display: flex; gap: 8px; margin-top: 10px; }
@@ -747,7 +778,8 @@
     .strategy-bar { align-items: flex-start; }
     .strategy-desc { margin-left: 0; flex-basis: 100%; }
     .card.panel { min-height: auto; }
-    .input-area, .output-area, .compare-area { min-height: 260px; }
+    /* 移动端内容区跟着视口高度走，别把主操作推到拇指够不到的屏幕外 */
+    .input-area, .output-area, .compare-area { min-height: clamp(200px, 30vh, 300px); }
     .history-panel { width: 100%; }
     .history-overlay { padding: 8px; }
   }
@@ -806,7 +838,7 @@
       <button class="strategy-btn active" data-intensity="normal">🌿 普通</button>
       <button class="strategy-btn" data-intensity="heavy">🔥 重度</button>
     </div>
-    <span class="strategy-desc" id="strategyDesc">分号长段 + 句首多样 + 段落不均</span>
+    <span class="strategy-desc" id="strategyDesc"></span>
   </div>
 
   <!-- Left: Input -->
@@ -823,7 +855,8 @@
     </div>
 
     <textarea class="input-area" id="inputText"
-      placeholder="在此粘贴论文段落…&#10;&#10;建议每次 500-2000 字效果最佳；超过 2000 字会自动按段落分段改写（每段约 500 字）。"></textarea>
+      title="建议每次 500-2000 字效果最佳；超过 2000 字会自动按段落分段改写"
+      placeholder="在此粘贴论文段落…"></textarea>
 
     <div class="panel-foot">
       <div class="foot-note">文本会经本站代理发送至第三方大模型服务，改写结果仅供写作参考。</div>
@@ -850,7 +883,11 @@
     </div>
 
     <div class="output-area" id="outputArea">
-      <span class="output-placeholder">改写后的文本将显示在这里…</span>
+      <div class="empty-state">
+        <div class="empty-mark" aria-hidden="true">✦</div>
+        <div class="empty-title">改写结果会显示在这里</div>
+        <div class="empty-sub">粘贴原文后点「开始改写」，也支持拖入 docx / txt / md</div>
+      </div>
     </div>
     <div class="compare-area" id="compareArea" style="display:none;">
     </div>
@@ -1141,7 +1178,7 @@ function getActiveKey() {
 // ==================== Strategies ====================
 const STRATEGIES = {
   "sentence-shuffle": {
-    name:"降AI·结构", desc:"分号长段 + 句首多样 + 段落不均",
+    name:"降AI·结构", desc:"打散句式 · 变换开头 · 长短句交错",
     prompt:`你是一位专门降低AIGC检测率的文本改写专家。请参考以下真实论文的风格特征，对文本进行深度改写：
 
 【参考风格特征】
@@ -1154,7 +1191,7 @@ const STRATEGIES = {
 请对以下文本按要求改写。只输出改写后的文本，不加任何解释。`
   },
   "human-inject": {
-    name:"降AI·风格", desc:"过渡多样 + 举例对比 + 语义推进",
+    name:"降AI·风格", desc:"换种说法 · 保留原意 · 更像人写的",
     prompt:`你是一位深谙真实学术写作风格的编辑。请参考以下已通过AI检测的真实论文风格，对文本进行"去AI化"深度改写：
 
 【参考风格特征】
@@ -1230,13 +1267,26 @@ document.addEventListener("DOMContentLoaded", () => {
   bindDelegates();
 
   // 策略切换
+  const strategyDescEl = document.getElementById("strategyDesc");
+  strategyDescEl.textContent = STRATEGIES[currentStrategy].desc;   // 初始文案由定义处写，别在 HTML 里再抄一份（会漂移）
   document.getElementById("strategyGroup").addEventListener("click", (e) => {
     const btn = e.target.closest(".strategy-btn");
     if (!btn) return;
     document.querySelectorAll(".strategy-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     currentStrategy = btn.dataset.strategy;
-    document.getElementById("strategyDesc").textContent = STRATEGIES[currentStrategy].desc;
+    strategyDescEl.textContent = STRATEGIES[currentStrategy].desc;
+  });
+
+  // 悬停即预览策略说明、移开回到当前选择 —— 「点完才知道这个策略是干嘛的」不直观
+  document.getElementById("strategyGroup").addEventListener("mouseover", (e) => {
+    const btn = e.target.closest(".strategy-btn");
+    if (btn && btn.dataset.strategy) {
+      strategyDescEl.textContent = STRATEGIES[btn.dataset.strategy].desc;
+    }
+  });
+  document.getElementById("strategyGroup").addEventListener("mouseleave", () => {
+    strategyDescEl.textContent = STRATEGIES[currentStrategy].desc;
   });
 
   // 强度切换
@@ -1378,7 +1428,7 @@ function updateHeaderInfo() {
     return;
   }
   // 缺什么就说什么，别只给一个红点
-  const missing = [!key ? "API Key" : null, !model ? "模型" : null].filter(Boolean).join(" 和 ");
+  const missing = [!key ? "API Key" : null, !model ? "模型" : null].filter(Boolean).join(" 与 ");
   el.innerHTML = `<span class="status-dot err"></span>未配置 ${escapeHtml(missing)} <button class="btn btn-ghost btn-sm status-fix" onclick="openSettings()">去配置</button>`;
 }
 
@@ -1824,7 +1874,7 @@ async function polishAgain() {
   originalText = rewrittenText;
   setInputText(originalText);
   setRewritten("");
-  document.getElementById("outputArea").innerHTML = '<span class="output-placeholder">已把上次结果放回左侧，准备再降一次…</span>';
+  document.getElementById("outputArea").innerHTML = '<div class="empty-state"><div class="empty-mark" aria-hidden="true">✦</div><div class="empty-title">已把上次结果放回左侧</div><div class="empty-sub">点下方「开始改写」再降一次，或直接改左侧原文</div></div>';
   showViewTabs(false);
   document.getElementById("compareArea").style.display = "none";
   hideQualityHint();
@@ -1935,7 +1985,7 @@ ${paragraphs}
 function clearAll() {
   setInputText("");
   clearDraft();
-  document.getElementById("outputArea").innerHTML = '<span class="output-placeholder">改写后的文本将显示在这里…</span>';
+  document.getElementById("outputArea").innerHTML = '<div class="empty-state"><div class="empty-mark" aria-hidden="true">✦</div><div class="empty-title">改写结果会显示在这里</div><div class="empty-sub">粘贴原文后点下方「开始改写」，也支持拖入 docx / txt / md 多文件合并</div></div>';
   document.getElementById("outputCount").textContent = "0 字";
   originalText = "";
   setRewritten("");
@@ -2719,7 +2769,7 @@ function loadHistory(index) {
   if (!r) return;
   setInputText(r.original || "");
   setRewritten("");
-  document.getElementById("outputArea").innerHTML = '<span class="output-placeholder">改写后的文本将显示在这里…</span>';
+  document.getElementById("outputArea").innerHTML = '<div class="empty-state"><div class="empty-mark" aria-hidden="true">✦</div><div class="empty-title">改写结果会显示在这里</div><div class="empty-sub">粘贴原文后点下方「开始改写」，也支持拖入 docx / txt / md 多文件合并</div></div>';
   document.getElementById("outputCount").textContent = "0 字";
   showViewTabs(false);
   hideQualityHint();
