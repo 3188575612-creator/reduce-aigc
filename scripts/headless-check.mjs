@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.15", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.15\.\d+/.test(v)],
+    ["代理健康检查显示 v3.16", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.16\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -1391,6 +1391,38 @@ try {
       return JSON.stringify(res);
     })()`,
       (v) => { const o = JSON.parse(v); return o.gradients >= 3 && /blur/.test(o.blur); }],
+
+    // ---- 主界面玻璃（v3.16.0）----
+    ["主界面卡片是玻璃，且内容区维持实底（观感与可读性分工）", `(() => {
+      const card = document.querySelector(".card.panel");
+      const cs = getComputedStyle(card);
+      const area = getComputedStyle(document.getElementById("inputText"));
+      const out = getComputedStyle(document.getElementById("outputArea"));
+      const grain = getComputedStyle(card, "::after").backgroundImage || "";
+      const inner = getComputedStyle(document.querySelector(".card.panel .panel-header"));
+      return JSON.stringify({
+        玻璃: /blur/.test(cs.backdropFilter || ""),
+        描边非白: cs.borderTopColor,
+        内容区实底: area.backgroundColor,
+        输出区实底: out.backgroundColor,
+        有颗粒: /svg/.test(grain),
+        内容在颗粒之上: inner.zIndex
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        const opaque = (c) => { const m = c.match(/[\d.]+/g); return m && (m.length < 4 || parseFloat(m[3]) > 0.85); };
+        return o.玻璃 && opaque(o.内容区实底) && opaque(o.输出区实底) && o.有颗粒 && o.内容在颗粒之上 === "1"; }],
+    ["系统要求减少透明度时玻璃退化为实底（性能兜底）", `(() => {
+      const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("\\n");
+      const block = (css.match(/@media\\s*\\(prefers-reduced-transparency:\\s*reduce\\)\\s*\\{[\\s\\S]*?\\n  \\}/) || [""])[0];
+      return JSON.stringify({
+        有该查询: block.length > 0,
+        卡片退实底: /\\.card\\.panel\\s*\\{[^}]*backdrop-filter:\\s*none/.test(block),
+        面板退实底: /\\.modal, \\.history-panel, \\.toast, \\.action-bar/.test(block),
+        柔光关闭: /\\.modal-overlay::before\\s*\\{\\s*display:\\s*none/.test(block)
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.有该查询 && o.卡片退实底 && o.面板退实底 && o.柔光关闭; }],
   ];
 
   for (const [name, expr, check] of probes) {

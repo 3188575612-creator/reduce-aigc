@@ -62,6 +62,8 @@
     --glass-bg: rgba(238, 244, 255, 0.42);
     --glass-bg-strong: rgba(238, 244, 255, 0.56);
     --glass-stroke: rgba(255, 255, 255, 0.42);
+    /* 主界面卡片的描边：浅色下白描边会消失在近白背景里，改用淡灰才看得出边界 */
+    --card-glass-stroke: rgba(17, 20, 29, 0.1);
     --glass-hairline: rgba(17, 20, 29, 0.06);
     --glass-blur: 22px;
     --glass-sat: 190%;
@@ -103,9 +105,9 @@
     --diff-del-fg: #9c2b28;
 
     /* 背景光晕：让玻璃有东西可虚化，幅度刻意压得很低 */
-    --glow-1: rgba(99, 102, 241, 0.15);
-    --glow-2: rgba(56, 189, 248, 0.12);
-    --glow-3: rgba(168, 85, 247, 0.09);
+    --glow-1: rgba(99, 102, 241, 0.2);
+    --glow-2: rgba(56, 189, 248, 0.16);
+    --glow-3: rgba(168, 85, 247, 0.12);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -143,6 +145,7 @@
       --glass-bg: rgba(30, 36, 48, 0.44);
       --glass-bg-strong: rgba(30, 36, 48, 0.6);
       --glass-stroke: rgba(255, 255, 255, 0.1);
+      --card-glass-stroke: rgba(255, 255, 255, 0.12);
       --glass-hairline: rgba(255, 255, 255, 0.09);
       --glass-lip-light: rgba(255, 255, 255, 0.34);
       --glass-lip-soft: rgba(255, 255, 255, 0.12);
@@ -175,9 +178,9 @@
       --diff-del-bg: #3a2224;
       --diff-del-fg: #fca5a5;
 
-      --glow-1: rgba(99, 102, 241, 0.22);
-      --glow-2: rgba(14, 165, 233, 0.15);
-      --glow-3: rgba(168, 85, 247, 0.13);
+      --glow-1: rgba(99, 102, 241, 0.3);
+      --glow-2: rgba(14, 165, 233, 0.2);
+      --glow-3: rgba(168, 85, 247, 0.17);
     }
   }
 
@@ -229,6 +232,24 @@
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+
+  /* 系统要求减少透明度（macOS「降低透明度」/ iOS「减弱透明度」）：
+     玻璃一律退化为实底 —— 背板模糊在每帧都要重新计算，低端设备与大屏卡片会明显掉帧 */
+  @media (prefers-reduced-transparency: reduce) {
+    .card.panel {
+      background: var(--card);
+      -webkit-backdrop-filter: none; backdrop-filter: none;
+      box-shadow: var(--shadow-1);
+    }
+    .card.panel::after { display: none; }
+    .modal, .history-panel, .toast, .action-bar {
+      background: var(--card);
+      -webkit-backdrop-filter: none; backdrop-filter: none;
+    }
+    .modal::before, .history-panel::before, .modal::after, .history-panel::after { display: none; }
+    .modal-overlay::before { display: none; }
+    .modal-body, .history-panel-body { background: transparent; }
   }
 
   /* ============================================================
@@ -296,6 +317,7 @@
     gap: 22px;
   }
   .card {
+    position: relative;
     display: flex; flex-direction: column;
     background: var(--card);
     border: 1px solid var(--card-border);
@@ -303,6 +325,31 @@
     padding: 22px;
     box-shadow: var(--shadow-1);
   }
+  /* 主界面卡片也走玻璃：与二级界面同一配方。
+     内容区（输入框/结果区）保持实底 —— 玻璃负责观感，实底负责可读性。 */
+  .card.panel {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    border-color: var(--card-glass-stroke);
+    box-shadow:
+      var(--shadow-2),
+      inset 0 1.5px 0 var(--glass-lip-light),
+      inset 1.5px 0 0 var(--glass-lip-soft),
+      inset 0 -1.5px 0 var(--glass-lip-dark),
+      inset -1.5px 0 0 var(--glass-lip-dark);
+  }
+  /* 玻璃颗粒要垫在内容之下，否则会给正文压上一层颗粒、影响可读性 */
+  .card.panel::after {
+    content: "";
+    position: absolute; inset: 0; border-radius: inherit;
+    background-image: var(--glass-grain);
+    background-size: 140px 140px;
+    opacity: .16;
+    mix-blend-mode: overlay;
+    pointer-events: none;
+  }
+  .card.panel > * { position: relative; z-index: 1; }
 
   .panel-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
   .panel-title { font-size: 14px; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.01em; }
