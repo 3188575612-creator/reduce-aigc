@@ -87,7 +87,18 @@
     --glass-lip-dark: rgba(17, 20, 29, 0.07);
     /* 极细颗粒：抵消数字渲染的塑料感 */
     --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23g)'/%3E%3C/svg%3E");
+    /* ---- 动效令牌：全站只用这三档时长、两条曲线，位移上限 8px ----
+       只动 transform / opacity / color / background-color 这些合成属性，
+       不动 width / height / top / left，避免重排与抖动。 */
     --scrim: rgba(14, 16, 22, 0.3);
+    --motion-fast: 120ms;   /* 微反馈：hover、按下 */
+    --motion-base: 180ms;   /* 状态切换：tab、展开收起 */
+    --motion-slow: 260ms;   /* 面板进出、列表进入 */
+    --motion-press: 60ms;   /* 按下回弹 */
+    --ease-out: cubic-bezier(.22, 1, .36, 1);
+    --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+    --move-sm: 4px;
+    --move-md: 8px;
     --glass-content: rgba(255, 255, 255, 0.5);
     --glass-aura-1: rgba(99, 102, 241, 0.16);
     --glass-aura-2: rgba(56, 189, 248, 0.13);
@@ -240,7 +251,33 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
 
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;      /* 列表逐条淡入的 stagger 延迟也要归零 */
+      transition-duration: 0.01ms !important;
+      transition-delay: 0ms !important;
+      scroll-behavior: auto !important;
+    }
+    /* 只把时长归零是不够的：带 translateY/scale 的关键帧会在一帧内瞬移，
+       视觉上是「闪一下」而不是「没有动画」。所以这里直接整个关掉，
+       并把所有按下/选中的缩放归零 —— 状态变化本身仍通过颜色表达。 */
+    .history-item.enter,
+    .empty-mark,
+    .view-enter,
+    .strategy-desc.fade,
+    .btn-rewrite.busy {
+      animation: none !important;
+    }
+    .btn:active:not(:disabled),
+    .strategy-btn:active,
+    .strategy-btn.active,
+    .view-tab:active,
+    .btn.done,
+    .btn-primary:hover:not(:disabled),
+    .btn-primary:active:not(:disabled) {
+      transform: none !important;
+    }
   }
 
   /* 系统要求减少透明度（macOS「降低透明度」/ iOS「减弱透明度」）：
@@ -387,15 +424,28 @@
     background: transparent; cursor: pointer;
     font-size: 13px; font-weight: 500; font-family: inherit;
     color: var(--text-secondary); white-space: nowrap;
-    transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+    transition:
+      background var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out),
+      box-shadow var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
   }
   .strategy-btn:hover { color: var(--text); }
+  .strategy-btn:active { transform: scale(.96); }
+  /* 选中态轻微放大：切换时有个"落位"感，幅度只有 4%，不抢内容 */
+  .strategy-btn.active { transform: scale(1.04); }
   .strategy-btn.active {
     background: var(--card); color: var(--accent); font-weight: 600;
     box-shadow: var(--shadow-1);
   }
   .strategy-gap { margin-left: 14px; }
   .strategy-desc { font-size: 12px; color: var(--text-tertiary); margin-left: auto; }
+  /* 说明文字换内容时淡入：靠重设 textContent 触发 class 移除重加 */
+  .strategy-desc.fade { animation: fadeSwap var(--motion-base) var(--ease-out); }
+  @keyframes fadeSwap {
+    from { opacity: 0; transform: translateX(var(--move-sm)); }
+    to { opacity: 1; transform: none; }
+  }
 
   /* ============================================================
      输入 / 输出
@@ -446,6 +496,11 @@
   .empty-mark {
     font-size: 26px; line-height: 1; color: var(--border);
     user-select: none;
+    animation: emptyIn var(--motion-slow) var(--ease-out);
+  }
+  @keyframes emptyIn {
+    from { opacity: 0; transform: scale(.9) rotate(-8deg); }
+    to { opacity: 1; transform: none; }
   }
   .empty-title { font-size: 14px; color: var(--text-secondary); }
   .empty-sub { font-size: 12px; color: var(--text-tertiary); line-height: 1.7; max-width: 26em; text-wrap: balance; }
@@ -463,12 +518,23 @@
     background: transparent; cursor: pointer;
     font-size: 12px; font-weight: 500; font-family: inherit; line-height: 1.4;
     color: var(--text-secondary);
-    transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+    transition:
+      background var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
   }
   .view-tab:hover { color: var(--text); }
+  .view-tab:active { transform: scale(.96); }
   .view-tab.active {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     color: var(--accent); font-weight: 600;
+  }
+  /* 切视图时内容淡入 + 4px 上移。用 animation 而非 transition：
+     切换是「换内容」事件，不是「改样式」事件 */
+  .view-enter { animation: viewEnter var(--motion-base) var(--ease-out); }
+  @keyframes viewEnter {
+    from { opacity: 0; transform: translateY(var(--move-sm)); }
+    to { opacity: 1; transform: none; }
   }
 
   /* ============================================================
@@ -533,9 +599,21 @@
     border: 1px solid transparent; background: transparent;
     font-size: 13px; font-weight: 600; font-family: inherit;
     color: var(--text); cursor: pointer; white-space: nowrap;
-    transition: background .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    transition:
+      background var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out),
+      box-shadow var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
   }
-  .btn:disabled { opacity: .6; cursor: default; }
+  .btn:active:not(:disabled) { transform: scale(.97); transition-duration: var(--motion-press); }
+  /* 提交成功：底色一闪即退回，不常驻 —— 常驻色块等于给用户一个永久标记 */
+  .btn.done {
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    color: var(--success-text);
+    transform: scale(1.02);
+  }
+  .btn:disabled { opacity: .55; cursor: default; transition: opacity var(--motion-base) var(--ease-out); }
   .btn-primary {
     background: var(--accent); color: var(--on-accent);
     box-shadow: 0 1px 2px rgba(79, 70, 229, .25), 0 8px 20px -8px rgba(79, 70, 229, .5);
@@ -575,6 +653,12 @@
     border-radius: 50%; animation: spin .6s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* 改写中主按钮轻微呼吸：幅度只有 2%，提示"正在跑"而不焦躁 */
+  .btn-rewrite.busy { animation: busyPulse 1.6s var(--ease-in-out) infinite; }
+  @keyframes busyPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+  }
 
   /* ============================================================
      进度
@@ -699,7 +783,11 @@
     padding: 8px 10px; border-radius: var(--r-sm);
   }
   .adv-summary::-webkit-details-marker { display: none; }
-  .adv-summary::before { content: "▸"; font-size: 10px; transition: transform .15s; }
+  .adv-summary::before {
+    content: "▸"; font-size: 10px; display: inline-block;
+    transition: transform var(--motion-base) var(--ease-in-out);
+  }
+  .adv-summary[open]::before { transform: rotate(90deg); }
   .adv-settings[open] .adv-summary::before { transform: rotate(90deg); }
   .adv-summary:hover { background: var(--field-bg); }
   .adv-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -755,6 +843,12 @@
   }
   .history-panel-footer { position: relative; z-index: 1; padding: 12px 18px 16px; border-top: 1px solid var(--glass-hairline); }
 
+  /* 逐条淡入：动画延迟由 JS 按序号设置，最多前 8 条参与，避免长列表拖沓 */
+  .history-item.enter { animation: itemEnter var(--motion-slow) var(--ease-out) both; }
+  @keyframes itemEnter {
+    from { opacity: 0; transform: translateY(var(--move-md)); }
+    to { opacity: 1; transform: none; }
+  }
   .history-item {
     padding: 12px; margin-bottom: 10px;
     border-radius: var(--r-md);
@@ -1031,7 +1125,7 @@
     <div class="panel-foot">
       <div class="foot-note" id="resultMeta">改写完成后这里会显示本次所用模型与强度</div>
       <div class="foot-actions">
-        <button class="btn btn-ghost btn-sm result-action" onclick="copyResult()" disabled>📋 复制</button>
+        <button class="btn btn-ghost btn-sm result-action" id="btnCopyResult" onclick="copyResult()" disabled>📋 复制</button>
         <button class="btn btn-ghost btn-sm result-action" onclick="downloadResult()" disabled>💾 下载 MD</button>
         <button class="btn btn-ghost btn-sm result-action" onclick="downloadWord()" disabled>📄 导出 Word</button>
         <button class="btn btn-ghost btn-sm result-action" onclick="polishAgain()" disabled>✨ 再降一次</button>
@@ -1405,13 +1499,18 @@ document.addEventListener("DOMContentLoaded", () => {
   // 策略切换
   const strategyDescEl = document.getElementById("strategyDesc");
   strategyDescEl.textContent = STRATEGIES[currentStrategy].desc;   // 初始文案由定义处写，别在 HTML 里再抄一份（会漂移）
+  // 换说明文案时淡入：悬停预览会高频触发，只在真正切换（click）时才播
+  const setStrategyDesc = (text, animate) => {
+    strategyDescEl.textContent = text;
+    if (animate && !motionOff()) replayAnimation(strategyDescEl, "fade");
+  };
   document.getElementById("strategyGroup").addEventListener("click", (e) => {
     const btn = e.target.closest(".strategy-btn");
     if (!btn) return;
     document.querySelectorAll(".strategy-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     currentStrategy = btn.dataset.strategy;
-    strategyDescEl.textContent = STRATEGIES[currentStrategy].desc;
+    setStrategyDesc(STRATEGIES[currentStrategy].desc, true);
   });
 
   // 悬停即预览策略说明、移开回到当前选择 —— 「点完才知道这个策略是干嘛的」不直观
@@ -1929,6 +2028,7 @@ function setRewriting(on) {
   const stop = document.getElementById("stopBtn");
   btn.disabled = on;
   btn.innerHTML = on ? '<span class="spinner"></span>改写中…' : "🔄 开始改写";
+  btn.classList.toggle("busy", on && !motionOff());
   stop.style.display = on ? "" : "none";
   // 锁定输入侧（readOnly 保留选中复制，比 disabled 打扰小）；结束时按结果有无恢复右栏按钮
   document.getElementById("inputText").readOnly = on;
@@ -2020,10 +2120,25 @@ async function polishAgain() {
 }
 
 // ==================== Export ====================
+// 提交反馈：按钮原位短暂变「✓」，比只弹 toast 更快被注意到；2 秒后复原
+function flashButton(btn, text) {
+  if (!btn) return;
+  if (motionOff()) return;                    // 减弱动效时只换文案，不做形变
+  const original = btn.dataset.label || btn.textContent;
+  btn.dataset.label = original;
+  btn.textContent = text;
+  btn.classList.add("done");
+  clearTimeout(btn._flashTimer);
+  btn._flashTimer = setTimeout(() => {
+    btn.textContent = original;
+    btn.classList.remove("done");
+  }, 2000);
+}
+
 function copyResult() {
   if (!rewrittenText) return toast("没有可复制的内容");
   navigator.clipboard.writeText(rewrittenText).then(
-    () => toast("已复制到剪贴板"),
+    () => { toast("已复制到剪贴板"); flashButton(document.getElementById("btnCopyResult"), "✓ 已复制"); },
     () => {
       // 剪贴板不可用（非 https / 无权限）时直接帮用户选中，省一步操作
       const el = document.getElementById("outputArea");
@@ -2155,6 +2270,20 @@ function escapeHtml(str) {
 // 注意：这只对「HTML 属性值」安全。onclick= 里的内容属于脚本上下文，浏览器会先做实体解码
 // 再当 JS 源码执行，&#39; 挡不住 —— 所以任何拼接用户数据的内联事件都是注入面，
 // 动态列表一律走 data-* + 事件委托（见 bindDelegates）。
+// 动效统一入口：重放 CSS 动画的标准做法是「移除 class → 强制重排 → 加回 class」
+function replayAnimation(el, cls) {
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;          // 强制重排，让动画能重新触发
+  el.classList.add(cls);
+}
+
+// 系统开启「减弱动效」时一律不播：CSS 侧已把时长归零，这里再挡住 stagger 延迟，
+// 否则列表项会卡在初始态直到延迟结束才出现
+function motionOff() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 function escapeAttr(s) {
   return escapeHtml(String(s == null ? "" : s)).replace(/'/g, "&#39;");
 }
@@ -2548,6 +2677,12 @@ function switchView(view) {
   } else if (view === "compare") {
     renderCompare();
   }
+
+  // 切的是「内容」不是样式，用 animation 而非 transition；只动 opacity/transform，不触发布局
+  if (!motionOff()) {
+    replayAnimation(document.getElementById("compareArea"), "view-enter");
+    replayAnimation(document.getElementById("outputArea"), "view-enter");
+  }
 }
 
 // ==================== Diff & Compare ====================
@@ -2881,7 +3016,7 @@ function renderHistoryPanel() {
     return;
   }
   el.innerHTML = records.map((r, i) => `
-    <div class="history-item">
+    <div class="history-item${i < 8 ? ' enter' : ''}"${i < 8 ? ` style="animation-delay:${i * 40}ms"` : ''}>
       <div class="history-item-meta">
         <span class="history-item-time">${escapeHtml(String(r.time || ""))}</span>
         <span class="history-item-tag">${escapeHtml(String(r.strategy || ""))} · ${r.intensity === "heavy" ? "重度" : "普通"} · ${String(r.original || "").length} 字</span>

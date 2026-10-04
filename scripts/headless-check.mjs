@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.16", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.16\.\d+/.test(v)],
+    ["代理健康检查显示 v3.17", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.17\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -1461,6 +1461,71 @@ try {
         // 磨砂区间 0.7~0.9：常驻结构与卡片同族，不再出现「薄玻璃 ↔ 厚磨砂」的断层
         const band = (a) => a >= 0.7 && a <= 0.9;
         return o.都用背板模糊 && band(o.顶栏透度) && band(o.底栏透度) && band(o.卡片透度); }],
+
+    // ---- 动效体系（v3.17.0）----
+    ["动效令牌齐全：3 档时长 + 2 条缓动 + 位移上限 4/8px", `(() => {
+      const cs = getComputedStyle(document.documentElement);
+      const g = (n) => cs.getPropertyValue(n).trim();
+      return JSON.stringify({ fast: g("--motion-fast"), base: g("--motion-base"), slow: g("--motion-slow"),
+        press: g("--motion-press"), out: g("--ease-out"), io: g("--ease-in-out"),
+        sm: g("--move-sm"), md: g("--move-md") });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        return o.fast === "120ms" && o.base === "180ms" && o.slow === "260ms" && o.press === "60ms"
+          && /cubic-bezier/.test(o.out) && /cubic-bezier/.test(o.io) && o.sm === "4px" && o.md === "8px"; }],
+    ["所有关键帧只动 transform / opacity（不触发布局）", `(() => {
+      const css = [...document.querySelectorAll("style")].map((e) => e.textContent).join("\\n");
+      const names = ["fadeSwap", "emptyIn", "viewEnter", "busyPulse", "itemEnter", "slideIn"];
+      const bad = [];
+      let checked = 0;
+      for (const n of names) {
+        const i = css.indexOf("@keyframes " + n);
+        if (i < 0) { bad.push(n + "(缺失)"); continue; }
+        // 从第一个 { 起做花括号配平，取出恰好这一块（单行 keyframes 也不会越界到后面的规则）
+        let depth = 0, started = false, end = -1;
+        for (let k = css.indexOf("{", i); k < css.length; k++) {
+          const ch = css[k];
+          if (ch === "{") { depth++; started = true; }
+          else if (ch === "}") { depth--; if (started && depth === 0) { end = k + 1; break; } }
+        }
+        if (end < 0) { bad.push(n + "(未闭合)"); continue; }
+        const body = css.slice(i, end);
+        checked++;
+        const hit = body.match(/\\b(width|height|top|left|right|bottom|margin|padding|font-size)\\s*:/g);
+        if (hit) bad.push(n + ":" + hit.join(","));
+      }
+      return JSON.stringify({ 检查数: checked, 越界: bad });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.检查数 === 6 && o.越界.length === 0; }],
+    ["prefers-reduced-motion 降级彻底：动画整体关闭 + 缩放归零", `(() => {
+      const css = [...document.querySelectorAll("style")].map((e) => e.textContent).join("\\n");
+      const i = css.indexOf("@media (prefers-reduced-motion: reduce)");
+      if (i < 0) return JSON.stringify({ 有查询: false });
+      // 取到下一个顶层 @ 之前
+      const rest = css.slice(i);
+      const j = rest.indexOf("\\n  @", 1);
+      const block = rest.slice(0, j < 0 ? rest.length : j);
+      return JSON.stringify({
+        有查询: true,
+        归零延迟: /animation-delay:\\s*0ms/.test(block),
+        关动画: /animation:\\s*none\\s*!important/.test(block),
+        归零缩放: /transform:\\s*none\\s*!important/.test(block),
+        点名了位移元素: /view-enter/.test(block) && /itemEnter|history-item/.test(block)
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        return o.有查询 && o.归零延迟 && o.关动画 && o.归零缩放 && o.点名了位移元素; }],
+    ["长列表 stagger 有上限（30 条也只前 8 条参与，最长等待 < 1s）", `(() => {
+      localStorage.setItem("aigc_history", JSON.stringify(Array.from({length: 30}, (_, i) =>
+        ({ time: "t" + i, strategy: "s", intensity: "normal", original: "o", result: "r" }))));
+      renderHistoryPanel();
+      const items = [...document.querySelectorAll(".history-item")];
+      const withAnim = items.filter((el) => el.classList.contains("enter"));
+      const last = withAnim[withAnim.length - 1];
+      const delay = last ? parseFloat(getComputedStyle(last).animationDelay) * 1000 : 0;
+      return JSON.stringify({ 总数: items.length, 参与: withAnim.length, 最长延迟ms: Math.round(delay) });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.总数 === 30 && o.参与 <= 8 && o.最长延迟ms <= 320; }],
   ];
 
   for (const [name, expr, check] of probes) {

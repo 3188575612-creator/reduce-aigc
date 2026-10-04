@@ -100,13 +100,13 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 |---|---|
 | `npm test` | 代理层回归自测：本地 mock 上游，80 项断言（鉴权、超时、重试、限流、CORS、参数夹取、extraBody、SSRF、HTML 清洗、流式空闲超时、限流 IP 加固、版本一致性） |
 | `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路，27 项（含 SSE 流式透传、model 透传、静态路由、限流、CORS、上游 HTML 清洗、_headers 安全头声明、_routes.json / _redirects 覆盖） |
-| `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、AI 痕迹自查（runDetect）、导出路径（MD / Word）、空态按钮禁用、改写中输入锁定、超量分段提示、对比图例、**XSS 注入面**、**主操作常驻可见 / 字号与按钮尺寸收敛 / 空态引导 / 策略悬停预览 / 玻璃质感（主界面 + 二级界面 + 减少透明度降级）**、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 125 项，并抓运行时异常 |
+| `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、AI 痕迹自查（runDetect）、导出路径（MD / Word）、空态按钮禁用、改写中输入锁定、超量分段提示、对比图例、**XSS 注入面**、**主操作常驻可见 / 字号与按钮尺寸收敛 / 空态引导 / 策略悬停预览 / 玻璃质感（主界面 + 二级界面 + 减少透明度降级）**、**动效令牌 / 关键帧只动合成属性 / reduced-motion 彻底降级 / stagger 上限**、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 129 项，并抓运行时异常 |
 | `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
 | `npm run gen:redirects` | 按 git 跟踪清单重新生成 `_redirects`（新增根目录文件后必跑，否则 e2e 会失败） |
 | `npm run check:docs` | 校验 README 标称的条数 / 版本号 / 公告约定与实际一致（CI 会跑，防止文档漂移） |
 | `npm run test:all` | 依次跑前三项（不含线上探测） |
 
-前三项都不需要真实 API Key，合计离线 **232 项**。
+前三项都不需要真实 API Key，合计离线 **236 项**。
 
 > 本机若禁止启动子进程（例如受限沙箱），`test:e2e` 里的 `_redirects` 一致性那项会显示 **SKIP** 并说明原因 ——
 > 这是环境限制、不等于通过，最终由 CI 或普通终端复跑确认。
@@ -247,6 +247,52 @@ Esc 可关闭任意弹窗；`Ctrl/⌘+Enter` 开始改写；深浅色跟随系�
 - 无障碍：`:focus-visible` 焦点环、`prefers-reduced-motion` 降级、滚动条与对比度统一处理
 
 ## 变更记录
+
+### 3.17.0（动效：统一的细节交互动画体系）
+
+全站此前只有 17 处 transition、2 个 keyframes，且动效参数散落各处（`.16s` / `.15s` / `.18s` 混用）。
+现在收敛成一套令牌，并补齐缺失的交互反馈。
+
+**统一规范**（令牌集中在 `:root`）
+
+| 令牌 | 值 | 用途 |
+|---|---|---|
+| `--motion-fast` | 120ms | 微反馈：hover、按下 |
+| `--motion-base` | 180ms | 状态切换：tab、展开收起 |
+| `--motion-slow` | 260ms | 面板进出、列表进入 |
+| `--motion-press` | 60ms | 按下回弹 |
+| `--ease-out` | `cubic-bezier(.22,1,.36,1)` | 进入、位移 |
+| `--ease-in-out` | `cubic-bezier(.4,0,.2,1)` | 双向对称（展开/收起） |
+| `--move-sm` / `--move-md` | 4px / 8px | 位移幅度上限 |
+
+**新增动效**
+
+| 组件 | 触发时机 | 实现 |
+|---|---|---|
+| `.btn` / `.strategy-btn` / `.view-tab` | 按下 | `scale(.96~.97)`，60ms 回弹 |
+| `.strategy-btn.active` | 策略切换 | `scale(1.04)` 轻微「落位」 |
+| 策略说明文字 | 策略切换（不含悬停预览） | 淡入 + 4px 左移 |
+| 视图切换（结果/对比/原文） | `switchView` | 内容区淡入 + 4px 上移 |
+| 高级设置 `<details>` | 展开/收起 | 三角旋转（此前完全无过渡） |
+| 历史列表项 | 面板打开 | 逐条淡入，stagger 40ms，**最多前 8 条** |
+| 空态 ✦ 标记 | 首次渲染 | 缩放淡入 + 轻微旋转 |
+| 改写中主按钮 | `setRewriting(true)` | 2% 幅度呼吸，1.6s 循环 |
+| 复制成功 | 剪贴板写入成功 | 按钮原位变「✓ 已复制」+ 底色一闪，2s 复原 |
+
+**约束落实**
+
+- **不抖动**：7 个 keyframes 全部只动 `transform` / `opacity`，无一涉及几何属性；
+  `view-enter` 不设 `fill-mode`，播完即回静态样式，不留常驻动画。实测 CLS = 0
+- **stagger 有上限**：30 条记录也只前 8 条参与，最长等待 540ms，不会因列表变长而拖沓
+- **性能**：`replayAnimation` 每次重放一次强制重排（重触发 animation 的标准做法），
+  实测单次 < 0.01ms
+- **`prefers-reduced-motion` 彻底降级**：原先只把时长归零 —— 带 `translateY/scale`
+  的关键帧仍会在一帧内瞬移，视觉上是「闪一下」而非「没有动画」。现在额外
+  `animation: none` + `transform: none` + `animation-delay: 0`，JS 侧 `motionOff()`
+  再挡一次（否则 stagger 延迟会让列表卡在不可见状态）
+
+- 测试 232 → 236 项（ui 125 → 129，含令牌齐全、关键帧只动合成属性、reduced-motion
+  彻底降级、stagger 上限四条防回归断言）
 
 ### 3.16.0（视觉：主界面卡片也走玻璃）
 
