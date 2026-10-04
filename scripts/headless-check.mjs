@@ -1418,8 +1418,7 @@ try {
         // 磨砂而非透明：卡片透度不超过 0.9；合成后遮蔽至少 80%（实测对比度断言兜住可读性）
         return o.玻璃 && o.卡片透度 > 0.7 && o.卡片透度 <= 0.9 && o.内容区透度 > 0.01
           && o.合成不透明度 >= 0.8 && o.有颗粒 && o.内容在颗粒之上 === "1"; }],
-    ["系统要求减少透明度时玻璃退化为实底（性能兜底）", `(() => {
-      const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("\\n");
+    ["系统要求减少透明度时玻璃退化为实底（性能兜底）", `(() => {      const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("\\n");
       const block = (css.match(/@media\\s*\\(prefers-reduced-transparency:\\s*reduce\\)\\s*\\{[\\s\\S]*?\\n  \\}/) || [""])[0];
       return JSON.stringify({
         有该查询: block.length > 0,
@@ -1429,6 +1428,39 @@ try {
       });
     })()`,
       (v) => { const o = JSON.parse(v); return o.有该查询 && o.卡片退实底 && o.面板退实底 && o.柔光关闭; }],
+
+    ["操作栏在主区内且跨两栏对齐（曾因在 .main 外而满宽）", `(() => {
+      const bar = document.querySelector(".action-bar");
+      const cards = document.querySelectorAll(".main .card.panel");
+      const b = bar.getBoundingClientRect();
+      const left = cards[0].getBoundingClientRect();
+      const right = cards[cards.length - 1].getBoundingClientRect();
+      return JSON.stringify({
+        父元素: bar.parentElement ? bar.parentElement.className : null,
+        在主区内: !!(bar.parentElement && bar.parentElement.classList.contains("main")),
+        卡片数: cards.length,
+        左偏差: Math.round(Math.abs(b.left - left.left)),
+        右偏差: Math.round(Math.abs(b.right - right.right))
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.在主区内 && o.卡片数 === 2 && o.左偏差 <= 1 && o.右偏差 <= 1; }],
+
+    ["常驻结构与卡片同族：顶栏 / 底栏都用磨砂，不用通透玻璃", `(() => {
+      const alpha = (el) => { const m = getComputedStyle(el).backgroundColor.match(/[\\d.]+/g);
+        return m && m.length > 3 ? parseFloat(m[3]) : 1; };
+      const header = document.querySelector(".header");
+      const bar = document.querySelector(".action-bar");
+      const card = document.querySelector(".card.panel");
+      const glass = (el) => /blur/.test(getComputedStyle(el).backdropFilter || "");
+      return JSON.stringify({
+        顶栏透度: alpha(header), 底栏透度: alpha(bar), 卡片透度: alpha(card),
+        都用背板模糊: glass(header) && glass(bar) && glass(card)
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        // 磨砂区间 0.7~0.9：常驻结构与卡片同族，不再出现「薄玻璃 ↔ 厚磨砂」的断层
+        const band = (a) => a >= 0.7 && a <= 0.9;
+        return o.都用背板模糊 && band(o.顶栏透度) && band(o.底栏透度) && band(o.卡片透度); }],
   ];
 
   for (const [name, expr, check] of probes) {

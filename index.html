@@ -66,6 +66,10 @@
     --card-glass-stroke: rgba(17, 20, 29, 0.13);
     /* 主界面卡片底：磨砂而非透明。工作台要长时间用，透度太高会显脏、光晕透进内容区干扰阅读 */
     --card-glass-bg: rgba(255, 255, 255, 0.82);
+    /* 常驻结构（顶栏 / 底部操作栏）：磨砂轻，与卡片同族但薄一档 */
+    --chrome-glass-bg: rgba(255, 255, 255, 0.8);
+    /* 交互件选中态：半透白，纯实底会在磨砂卡片上像贴了块白板 */
+    --chip-active-bg: rgba(255, 255, 255, 0.72);
     --glass-hairline: rgba(17, 20, 29, 0.06);
     --glass-blur: 22px;
     --glass-sat: 190%;
@@ -89,9 +93,9 @@
     --glass-aura-2: rgba(56, 189, 248, 0.13);
     --glass-aura-3: rgba(255, 255, 255, 0.5);
 
-    --notice-bg: #fff8e6;
-    --notice-border: #f2d38a;
-    --notice-fg: #7a5310;
+    --notice-bg: rgba(238, 241, 255, 0.92);
+    --notice-border: rgba(99, 102, 241, 0.28);
+    --notice-fg: #3b3f8f;
     --risk-high-bg: #fdeceb;
     --risk-high-fg: #9c2b28;
     --risk-high-solid: #e5484d;
@@ -149,6 +153,8 @@
       --glass-stroke: rgba(255, 255, 255, 0.1);
       --card-glass-stroke: rgba(255, 255, 255, 0.12);
       --card-glass-bg: rgba(34, 38, 47, 0.88);
+      --chrome-glass-bg: rgba(34, 38, 47, 0.8);
+      --chip-active-bg: rgba(255, 255, 255, 0.13);
       --glass-hairline: rgba(255, 255, 255, 0.09);
       --glass-lip-light: rgba(255, 255, 255, 0.34);
       --glass-lip-soft: rgba(255, 255, 255, 0.12);
@@ -164,9 +170,9 @@
       --glass-aura-2: rgba(56, 189, 248, 0.24);
       --glass-aura-3: rgba(255, 255, 255, 0.05);
 
-      --notice-bg: #2b2410;
-      --notice-border: #5f4a12;
-      --notice-fg: #f0d59a;
+      --notice-bg: rgba(38, 40, 74, 0.92);
+      --notice-border: rgba(129, 140, 248, 0.32);
+      --notice-fg: #c7c9f5;
       --risk-high-bg: #3a2224;
       --risk-high-fg: #fca5a5;
       --risk-high-solid: #ff6b6b;
@@ -262,9 +268,9 @@
     position: sticky; top: 0; z-index: 80;
     display: flex; align-items: center; justify-content: space-between;
     gap: 16px; padding: 12px 28px;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    backdrop-filter: blur(20px) saturate(180%);
+    background: var(--chrome-glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     border-bottom: 1px solid var(--glass-hairline);
   }
   .header-left { display: flex; align-items: center; gap: 10px; }
@@ -460,7 +466,10 @@
     transition: background .16s ease, color .16s ease, box-shadow .16s ease;
   }
   .view-tab:hover { color: var(--text); }
-  .view-tab.active { background: var(--card); color: var(--accent); font-weight: 600; box-shadow: var(--shadow-1); }
+  .view-tab.active {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent); font-weight: 600;
+  }
 
   /* ============================================================
      对比视图
@@ -546,13 +555,13 @@
        「开始改写」被推到屏幕外、要滚动才看得到 —— 这是最违反直觉的一点。
        粘在视口底部，滚动时跟随。 */
     position: sticky; bottom: 0; z-index: 60;
-    padding: 10px 18px;
-    margin: 0 -6px;
+    padding: 12px 22px;
     border-radius: var(--r-lg);
-    background: var(--glass-bg-strong);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    backdrop-filter: blur(20px) saturate(180%);
-    box-shadow: 0 -1px 0 var(--glass-hairline), var(--shadow-2);
+    background: var(--card-glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    border: 1px solid var(--card-glass-stroke);
+    box-shadow: var(--shadow-2);
   }
   @supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
     .action-bar { background: var(--card); }
@@ -1030,8 +1039,6 @@
       </div>
     </div>
   </div>
-</div>
-
 <!-- Action bar -->
 <div class="action-bar">
   <div class="quality-hint" id="qualityHint"></div>
@@ -1045,6 +1052,8 @@
   </div>
   <div class="action-tip">快捷键：Ctrl / ⌘ + Enter 开始改写，Esc 关闭弹窗</div>
 </div>
+</div>
+
 
 <!-- Settings Modal -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeSettings(event)">
