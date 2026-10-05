@@ -100,13 +100,13 @@ npm start          # http://127.0.0.1:3456（默认只监听本机；HOST=0.0.0.
 |---|---|
 | `npm test` | 代理层回归自测：本地 mock 上游，80 项断言（鉴权、超时、重试、限流、CORS、参数夹取、extraBody、SSRF、HTML 清洗、流式空闲超时、限流 IP 加固、版本一致性） |
 | `npm run test:e2e` | 端到端：真起 `server.js` + mock 上游，用 HTTP 打全链路，27 项（含 SSE 流式透传、model 透传、静态路由、限流、CORS、上游 HTML 清洗、_headers 安全头声明、_routes.json / _redirects 覆盖） |
-| `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、AI 痕迹自查（runDetect）、导出路径（MD / Word）、空态按钮禁用、改写中输入锁定、超量分段提示、对比图例、**XSS 注入面**、**主操作常驻可见 / 字号与按钮尺寸收敛 / 空态引导 / 策略悬停预览 / 玻璃质感（主界面 + 二级界面 + 减少透明度降级）**、**动效令牌 / 关键帧只动合成属性 / reduced-motion 彻底降级 / stagger 上限**、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 129 项，并抓运行时异常 |
+| `npm run test:ui` | 无头 Edge / Chrome + CDP：在真实页面上下文断言分段、tokenize、质量自检与提示次数、流式解析、局部改写、用量统计、多文件合并、AI 痕迹自查（runDetect）、导出路径（MD / Word）、空态按钮禁用、改写中输入锁定、超量分段提示、对比图例、**XSS 注入面**、**主操作常驻可见 / 字号与按钮尺寸收敛 / 空态引导 / 策略悬停预览 / 玻璃质感（主界面 + 二级界面 + 减少透明度降级）**、**动效令牌 / 按下与回弹分离 / hover 反馈强度 / 关键帧只动合成属性 / reduced-motion 彻底降级**、焦点与 inert、玻璃层与令牌、**左右两栏逐层对齐**、打印输出等 133 项，并抓运行时异常 |
 | `npm run probe:live` | **线上**暴露面检查：按内容判断源码/配置文件是否被公开，并验证 `/api/health` 版本与跨站 CORS 拦截 |
 | `npm run gen:redirects` | 按 git 跟踪清单重新生成 `_redirects`（新增根目录文件后必跑，否则 e2e 会失败） |
 | `npm run check:docs` | 校验 README 标称的条数 / 版本号 / 公告约定与实际一致（CI 会跑，防止文档漂移） |
 | `npm run test:all` | 依次跑前三项（不含线上探测） |
 
-前三项都不需要真实 API Key，合计离线 **236 项**。
+前三项都不需要真实 API Key，合计离线 **240 项**。
 
 > 本机若禁止启动子进程（例如受限沙箱），`test:e2e` 里的 `_redirects` 一致性那项会显示 **SKIP** 并说明原因 ——
 > 这是环境限制、不等于通过，最终由 CI 或普通终端复跑确认。
@@ -247,6 +247,45 @@ Esc 可关闭任意弹窗；`Ctrl/⌘+Enter` 开始改写；深浅色跟随系�
 - 无障碍：`:focus-visible` 焦点环、`prefers-reduced-motion` 降级、滚动条与对比度统一处理
 
 ## 变更记录
+
+### 3.18.0（动效：补齐反馈通道 + 提高强度 + 按下/回弹分离）
+
+上一版把动效补全了，但实测下来「不明显、不丝滑」。复盘后是三个原因，逐个解决。
+
+**① 反馈强度不足**（3% 缩放 / 1px 位移 = 小元素上几乎不可见）
+
+| 项 | 原 | 现 |
+|---|---|---|
+| 按钮按下 | `scale(.96~.97)` | `scale(.94)` |
+| 策略选中 | `scale(1.04)` | `scale(1.05)` + accent 淡底 + 阴影加深 |
+| 次级按钮 hover | 背景 `field-bg`（几乎看不出） | accent 9% 淡底 + 1px 上浮 |
+| 视图 tab 选中 | 12% 淡底 | 14% |
+| 图标按钮 hover | 无 | `scale(1.1~1.12)` |
+| 成功反馈 | 底色一闪 | `donePop`：0.6 → 1.06 → 1 弹出 |
+| 位移上限 | 4 / 8px | 6 / 10px |
+
+**② 六个交互元素完全没过渡**（背景突变 = 不丝滑）
+
+`.btn-ghost`（设置/历史面板里 **25 处**）、`.result-action`、`.key-delete`、
+`.cm-edit/.cm-del`、`.modal-close`、`.input`、`.notice-bar`、拖拽激活态 ——
+全部补上过渡。其中 ghost / 结果区按钮的 hover 原本同时变 5 个属性
+（背景+文字+边框+阴影+位移）= 5 次重绘，收敛到 2 个属性（背景+位移），
+并改用更明显的 accent 淡底替代几乎看不出的 `field-bg`。
+
+**③ 按下与回弹同速，缺「按下去、弹回来」的手感**
+
+CSS 单独表达不了：transition 走的是**目标状态**的时长，而 `:active` 解除后没有可挂钩的状态。
+新增 `--motion-tap: 200ms` + JS 的 `bindTapTiming()`：`pointerdown` 移除 `.tap`（按下用 90ms），
+`pointerup` 加上 `.tap`（回弹用 200ms），键盘 Enter/Space 同样走一次。
+
+**顺带修两个真 bug**（都是「按下没有反馈」的根因）
+
+- `.btn-primary` 的规则在 `.btn` 之后，同优先级下把 `:active` 的 `scale` 覆盖了 ——
+  实测主按钮按下时 `transform` 只有 `translateY(-1px)`，没有缩放
+- `.strategy-btn.active` / `.view-tab.active` 在 `:active` 之后，**选中态按钮按下完全无反馈**。
+  显式补 `.active:active` 组合态（1.05 → 0.99，因为已处于放大状态）
+
+- 测试 236 → 240 项（ui 129 → 133，含按下形变生效、hover 强度与属性数上限等四条断言）
 
 ### 3.17.0（动效：统一的细节交互动画体系）
 

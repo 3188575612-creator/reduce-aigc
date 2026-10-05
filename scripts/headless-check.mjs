@@ -156,8 +156,8 @@ try {
   const probes = [
     ["标题正确", "document.title",
       (v) => v.includes("AIGC降重")],
-    ["代理健康检查显示 v3.17", 'document.getElementById("proxyStatus").textContent',
-      (v) => /3\.17\.\d+/.test(v)],
+    ["代理健康检查显示 v3.18", 'document.getElementById("proxyStatus").textContent',
+      (v) => /3\.18\.\d+/.test(v)],
     ["默认强度为普通（普通按钮已高亮）", '(document.querySelector("#intensityGroup .active")||{}).dataset?.intensity',
       (v) => v === "normal"],
     ["默认策略为降AI·结构", '(document.querySelector("#strategyGroup .active")||{}).dataset?.strategy',
@@ -1463,16 +1463,80 @@ try {
         return o.都用背板模糊 && band(o.顶栏透度) && band(o.底栏透度) && band(o.卡片透度); }],
 
     // ---- 动效体系（v3.17.0）----
-    ["动效令牌齐全：3 档时长 + 2 条缓动 + 位移上限 4/8px", `(() => {
+    ["动效令牌齐全：时长分档 + 曲线分工 + 位移上限", `(() => {
       const cs = getComputedStyle(document.documentElement);
       const g = (n) => cs.getPropertyValue(n).trim();
       return JSON.stringify({ fast: g("--motion-fast"), base: g("--motion-base"), slow: g("--motion-slow"),
-        press: g("--motion-press"), out: g("--ease-out"), io: g("--ease-in-out"),
+        press: g("--motion-press"), tap: g("--motion-tap"),
+        out: g("--ease-out"), tapEase: g("--ease-tap"), io: g("--ease-in-out"),
         sm: g("--move-sm"), md: g("--move-md") });
     })()`,
       (v) => { const o = JSON.parse(v);
-        return o.fast === "120ms" && o.base === "180ms" && o.slow === "260ms" && o.press === "60ms"
-          && /cubic-bezier/.test(o.out) && /cubic-bezier/.test(o.io) && o.sm === "4px" && o.md === "8px"; }],
+        // 三档 + 按下/回弹两档；曲线分工：ease-tap 跟手、ease-out 收尾利落
+        return o.fast === "120ms" && o.base === "180ms" && o.slow === "260ms"
+          && o.press === "90ms" && o.tap === "200ms"
+          && parseInt(o.press, 10) < parseInt(o.tap, 10)
+          && /cubic-bezier/.test(o.out) && /cubic-bezier/.test(o.tapEase) && /cubic-bezier/.test(o.io)
+          && o.sm === "6px" && o.md === "10px"; }],
+    ["交互元素都有过渡（此前后台突变是「不丝滑」的主因）", `(() => {
+      const sels = [".btn-ghost", ".result-action", ".key-delete", ".cm-edit", ".modal-close", ".input"];
+      const missing = [];
+      for (const s of sels) {
+        const el = document.querySelector(s);
+        if (!el) { missing.push(s + "(未找到)"); continue; }
+        const t = getComputedStyle(el).transitionProperty;
+        if (!t || t === "none" || t === "all") missing.push(s);
+      }
+      return JSON.stringify({ 检查: sels.length, 缺过渡: missing });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.检查 === 6 && o.缺过渡.length === 0; }],
+    ["按下与回弹时长不同（JS 用 .tap 切换，CSS 单独表达不了）", `(() => {
+      const css = [...document.querySelectorAll("style")].map((e) => e.textContent).join("\\n");
+      const hasFn = typeof bindTapTiming === "function";
+      return JSON.stringify({
+        监听pointerdown: hasFn && /pointerdown/.test(bindTapTiming.toString()),
+        监听pointerup: hasFn && /pointerup/.test(bindTapTiming.toString()),
+        支持键盘: hasFn && /keyup/.test(bindTapTiming.toString()),
+        tap类已挂: !!document.querySelector(".btn-ghost"),
+        css有tap规则: /\\.btn\\.tap\\s*\\{/.test(css)
+      });
+    })()`,
+      (v) => { const o = JSON.parse(v);
+        return o.监听pointerdown && o.监听pointerup && o.支持键盘 && o.css有tap规则; }],
+    ["按下形变真的生效（各组合态都有明确 scale）", `(() => {
+      const css = [...document.querySelectorAll("style")].map((e) => e.textContent).join("\\n");
+      const need = [
+        ["普通按钮按下", /\\.btn:active:not\\(:disabled\\)\\s*\\{[\\s\\S]{0,120}?scale\\(\\.94\\)/],
+        ["主按钮按下", /\\.btn-primary:active:not\\(:disabled\\)\\s*\\{[^}]*scale\\(\\.94\\)/],
+        ["幽灵按钮按下", /\\.btn-ghost:hover:active:not\\(:disabled\\)\\s*\\{[^}]*scale\\(\\.94\\)/],
+        ["选中策略按下", /\\.strategy-btn\\.active:active\\s*\\{[^}]*scale\\(/],
+        ["选中视图tab按下", /\\.view-tab\\.active:active\\s*\\{[^}]*scale\\(/]
+      ];
+      const missing = need.filter(([, re]) => !re.test(css)).map(([n]) => n);
+      return JSON.stringify({ 应有: need.length, 缺: missing });
+    })()`,
+      (v) => { const o = JSON.parse(v); return o.应有 === 5 && o.缺.length === 0; }],
+    ["hover 反馈强度足够：位移或放大至少 1px/1.02，且同时变化的属性 ≤ 3", `(() => {
+      const css = [...document.querySelectorAll("style")].map((e) => e.textContent).join("\\n");
+      // 从选择器起截到下一个 "}" 为止（hover 规则都是单层，无嵌套）
+      const block = (sel) => {
+        const i = css.indexOf(sel + " {");
+        if (i < 0) return "";
+        const j = css.indexOf("}", i);
+        return j < 0 ? "" : css.slice(i, j);
+      };
+      const checks = [".btn-ghost:hover:not(:disabled)", ".result-action:hover:not(:disabled)", ".key-delete:hover"];
+      const rows = checks.map((sel) => {
+        const b = block(sel);
+        const inner = b.slice(b.indexOf("{") + 1);          // 只取花括号内的声明体
+        const props = (inner.match(/[a-z-]+\\s*:/g) || []).map((x) => x.replace(/\\s*:$/, ""));
+        const strong = b.indexOf("translateY(-1px)") >= 0 || /scale\\(1\\.[1-9]/.test(b);
+        return { 存在: b.length > 0, 属性数: props.length, 强度足够: strong };
+      });
+      return JSON.stringify({ 检查: rows });
+    })()`,
+      (v) => { const rows = JSON.parse(v).检查;
+        return rows.length === 3 && rows.every((r) => r.存在 && r.强度足够 && r.属性数 <= 3 && r.属性数 >= 2); }],
     ["所有关键帧只动 transform / opacity（不触发布局）", `(() => {
       const css = [...document.querySelectorAll("style")].map((e) => e.textContent).join("\\n");
       const names = ["fadeSwap", "emptyIn", "viewEnter", "busyPulse", "itemEnter", "slideIn"];

@@ -94,11 +94,15 @@
     --motion-fast: 120ms;   /* 微反馈：hover、按下 */
     --motion-base: 180ms;   /* 状态切换：tab、展开收起 */
     --motion-slow: 260ms;   /* 面板进出、列表进入 */
-    --motion-press: 60ms;   /* 按下回弹 */
+    --motion-press: 90ms;   /* 按下：起步要快，跟手才不「迟钝」 */
+    --motion-tap: 200ms;     /* 松手回弹：比按下慢，才有回弹感 */
+    /* 按下/回弹用 iOS 风格曲线（起步快、收尾稳）；
+       面板进出用 ease-out（末端利落，不拖泥带水） */
+    --ease-tap: cubic-bezier(.32, .72, 0, 1);
     --ease-out: cubic-bezier(.22, 1, .36, 1);
     --ease-in-out: cubic-bezier(.4, 0, .2, 1);
-    --move-sm: 4px;
-    --move-md: 8px;
+    --move-sm: 6px;
+    --move-md: 10px;
     --glass-content: rgba(255, 255, 255, 0.5);
     --glass-aura-1: rgba(99, 102, 241, 0.16);
     --glass-aura-2: rgba(56, 189, 248, 0.13);
@@ -266,7 +270,9 @@
     .empty-mark,
     .view-enter,
     .strategy-desc.fade,
-    .btn-rewrite.busy {
+    .notice-bar,
+    .btn-rewrite.busy,
+    .btn.done {
       animation: none !important;
     }
     .btn:active:not(:disabled),
@@ -275,7 +281,19 @@
     .view-tab:active,
     .btn.done,
     .btn-primary:hover:not(:disabled),
-    .btn-primary:active:not(:disabled) {
+    .btn-primary:active:not(:disabled),
+    .btn-ghost:hover:not(:disabled),
+    .btn-ghost:hover:active:not(:disabled),
+    .result-action:hover:not(:disabled),
+    .result-action:active:not(:disabled),
+    .key-delete:hover,
+    .key-delete:active,
+    .custom-model-item .cm-edit:hover,
+    .custom-model-item .cm-del:hover,
+    .custom-model-item .cm-edit:active,
+    .custom-model-item .cm-del:active,
+    .modal-close:hover,
+    .modal-close:active {
       transform: none !important;
     }
   }
@@ -349,6 +367,11 @@
     border: 1px solid var(--notice-border);
     color: var(--notice-fg);
     font-size: 12px; line-height: 1.7;
+    animation: noticeIn var(--motion-slow) var(--ease-out);
+  }
+  @keyframes noticeIn {
+    from { opacity: 0; transform: translateY(-var(--move-sm)); }
+    to { opacity: 1; transform: none; }
   }
   .notice-bar-text { flex: 1; min-width: 0; }
 
@@ -432,8 +455,16 @@
   }
   .strategy-btn:hover { color: var(--text); }
   .strategy-btn:active { transform: scale(.96); }
-  /* 选中态轻微放大：切换时有个"落位"感，幅度只有 4%，不抢内容 */
-  .strategy-btn.active { transform: scale(1.04); }
+  /* 选中态放大 5% + 阴影加深：切换时有个「落位」感。配合按钮自身的 active 缩放，
+     形成「按下 → 回弹放大 → 选中保持」的完整链条 */
+  .strategy-btn.active {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    transform: scale(1.05);
+    box-shadow: var(--shadow-2);
+  }
+  /* 选中态按钮也要有按下反馈：.active 在 :active 之后，不显式写就没有。
+     幅度比未选中时小（1.05 -> 0.99），因为它已经处于放大状态 */
+  .strategy-btn.active:active { transform: scale(.99); }
   .strategy-btn.active {
     background: var(--card); color: var(--accent); font-weight: 600;
     box-shadow: var(--shadow-1);
@@ -457,10 +488,13 @@
     height: 36px; margin-bottom: 12px;
   }
   .tools-note { font-size: 11px; color: var(--text-tertiary); }
+  /* 拖文件到卡片上：此前边框/光晕是瞬间出现，加过渡后才有「吸住」的手感 */
   .card.panel.drop-active {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
   }
+  .card.panel { transition: border-color var(--motion-fast) var(--ease-tap),
+    box-shadow var(--motion-fast) var(--ease-tap), transform var(--motion-fast) var(--ease-tap); }
 
   .input-area, .output-area, .compare-area {
     width: 100%;
@@ -526,9 +560,10 @@
   .view-tab:hover { color: var(--text); }
   .view-tab:active { transform: scale(.96); }
   .view-tab.active {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
     color: var(--accent); font-weight: 600;
   }
+  .view-tab.active:active { transform: scale(.94); }
   /* 切视图时内容淡入 + 4px 上移。用 animation 而非 transition：
      切换是「换内容」事件，不是「改样式」事件 */
   .view-enter { animation: viewEnter var(--motion-base) var(--ease-out); }
@@ -606,12 +641,26 @@
       box-shadow var(--motion-fast) var(--ease-out),
       transform var(--motion-fast) var(--ease-out);
   }
-  .btn:active:not(:disabled) { transform: scale(.97); transition-duration: var(--motion-press); }
+  /* 按下 6% + 松手回弹 200ms：单靠一条 transition 做不到「按下快、回弹慢」，
+     所以用两个 class 分别控制时长 —— 视觉上才是「按下去、弹回来」 */
+  .btn:active:not(:disabled) {
+    transform: scale(.94);
+    transition-duration: var(--motion-press);
+    will-change: transform;
+  }
+  .btn.tap { transition-duration: var(--motion-tap); }
+  .strategy-btn.tap, .view-tab.tap, .result-action.tap { transition-duration: var(--motion-tap); }
   /* 提交成功：底色一闪即退回，不常驻 —— 常驻色块等于给用户一个永久标记 */
+  /* 成功态从 0.6 弹到 1.06 再回 1，比直接换文字更容易被余光捕捉 */
   .btn.done {
-    background: color-mix(in srgb, var(--success) 16%, transparent);
+    background: color-mix(in srgb, var(--success) 18%, transparent);
     color: var(--success-text);
-    transform: scale(1.02);
+    animation: donePop var(--motion-tap) var(--ease-out);
+  }
+  @keyframes donePop {
+    0% { transform: scale(.6); }
+    60% { transform: scale(1.06); }
+    100% { transform: scale(1); }
   }
   .btn:disabled { opacity: .55; cursor: default; transition: opacity var(--motion-base) var(--ease-out); }
   .btn-primary {
@@ -619,9 +668,16 @@
     box-shadow: 0 1px 2px rgba(79, 70, 229, .25), 0 8px 20px -8px rgba(79, 70, 229, .5);
   }
   .btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
-  .btn-primary:active:not(:disabled) { transform: translateY(0); }
+  .btn-primary:active:not(:disabled) { transform: translateY(0) scale(.94); }
   .btn-ghost { color: var(--text-secondary); border-color: var(--card-border); }
-  .btn-ghost:hover:not(:disabled) { background: var(--field-bg); color: var(--text); border-color: var(--border); }
+  /* 次级按钮（设置/历史面板里 25 处）此前 hover 背景突变，是「不丝滑」的主要来源。
+     补过渡 + 1px 上浮 + 边框染上品牌色，幅度小但有明确的「可点」反馈 */
+  .btn-ghost:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    color: var(--text);
+    transform: translateY(-1px);
+  }
+  .btn-ghost:hover:active:not(:disabled) { transform: translateY(0) scale(.94); }
   .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: var(--r-sm);
     min-height: 32px; display: inline-flex; align-items: center; justify-content: center; }
 
@@ -758,9 +814,12 @@
     width: 32px; height: 32px; border-radius: var(--r-sm);
     border: none; background: var(--field-bg);
     font-size: 15px; line-height: 1; color: var(--text-secondary);
-    cursor: pointer; transition: background .16s ease, color .16s ease;
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-tap), color var(--motion-fast) var(--ease-tap),
+      transform var(--motion-fast) var(--ease-tap);
   }
-  .modal-close:hover { background: var(--danger-light); color: var(--danger-text); }
+  .modal-close:hover { background: var(--danger-light); color: var(--danger-text); transform: scale(1.08); }
+  .modal-close:active { transform: scale(.92); }
   .modal-body {
     position: relative; z-index: 1;
     display: flex; flex-direction: column;
@@ -888,12 +947,28 @@
     font-size: 13px; color: var(--text-tertiary); cursor: pointer;
     transition: background .16s ease, color .16s ease;
   }
-  .key-delete:hover { background: var(--danger-light); color: var(--danger-text); }
+  .key-delete {
+    transition: background var(--motion-fast) var(--ease-tap), color var(--motion-fast) var(--ease-tap),
+      transform var(--motion-fast) var(--ease-tap);
+  }
+  .key-delete:hover { background: var(--danger-light); color: var(--danger-text); transform: scale(1.1); }
+  .key-delete:active { transform: scale(.9); }
   .key-empty { padding: 22px; text-align: center; font-size: 13px; color: var(--text-tertiary); }
 
   /* ---- 表单 ---- */
   .add-key-form { display: flex; gap: 8px; margin-top: 10px; }
   .custom-model-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  /* 结果区四个操作按钮（复制/下载/导出/再降一次）此前无过渡 */
+  .result-action { transition:
+      background var(--motion-fast) var(--ease-tap),
+      color var(--motion-fast) var(--ease-tap),
+      transform var(--motion-fast) var(--ease-tap); }
+  .result-action:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    transform: translateY(-1px);
+  }
+  .result-action:active:not(:disabled) { transform: scale(.94); }
+
   .input {
     padding: 9px 12px;
     border: 1px solid var(--border); border-radius: var(--r-sm);
@@ -936,6 +1011,14 @@
     transition: background .16s ease, color .16s ease;
   }
   .custom-model-item .cm-edit { color: var(--accent); }
+  /* 模型行的编辑/删除图标：hover 放大 12%，是这类小图标唯一有效的反馈通道 */
+  .custom-model-item .cm-edit, .custom-model-item .cm-del {
+    transition: background var(--motion-fast) var(--ease-tap), transform var(--motion-fast) var(--ease-tap);
+  }
+  .custom-model-item .cm-edit:hover, .custom-model-item .cm-del:hover {
+    transform: scale(1.12); background: var(--field-bg);
+  }
+  .custom-model-item .cm-edit:active, .custom-model-item .cm-del:active { transform: scale(.92); }
   .custom-model-item .cm-del { color: var(--danger-text); }
   .custom-model-item .cm-edit:hover, .custom-model-item .cm-del:hover { background: var(--field-bg-strong); }
   .cm-option {
@@ -1495,6 +1578,7 @@ function buildMessages(strategy, text, context) {
 document.addEventListener("DOMContentLoaded", () => {
   migrateLegacyKeys();
   bindDelegates();
+  bindTapTiming();
 
   // 策略切换
   const strategyDescEl = document.getElementById("strategyDesc");
@@ -2282,6 +2366,33 @@ function replayAnimation(el, cls) {
 // 否则列表项会卡在初始态直到延迟结束才出现
 function motionOff() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// 「按下快、回弹慢」CSS 表达不了：transition 走的是「目标状态」的时长，
+// 而 :active 解除后没有可挂钩的状态。这里用 pointerup 补一个 .tap 来切换时长。
+function bindTapTiming() {
+  const SEL = ".btn, .strategy-btn, .view-tab, .result-action";
+  const clear = (el) => { el.classList.remove("tap"); clearTimeout(el._tapTimer); };
+  document.addEventListener("pointerdown", (e) => {
+    const el = e.target.closest(SEL);
+    if (el) clear(el);
+  }, true);
+  document.addEventListener("pointerup", (e) => {
+    const el = e.target.closest(SEL);
+    if (!el) return;
+    el.classList.add("tap");                    // 目标状态 = .tap → 用 200ms 回弹
+    clearTimeout(el._tapTimer);
+    el._tapTimer = setTimeout(() => el.classList.remove("tap"), 280);
+  }, true);
+  // 键盘触发（Enter/Space）没有 pointer 事件，也要走一次回弹
+  document.addEventListener("keyup", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const el = e.target.closest(SEL);
+    if (!el) return;
+    el.classList.add("tap");
+    clearTimeout(el._tapTimer);
+    el._tapTimer = setTimeout(() => el.classList.remove("tap"), 280);
+  }, true);
 }
 
 function escapeAttr(s) {
